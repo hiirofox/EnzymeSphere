@@ -1,0 +1,43 @@
+# CMake / Visual Studio build output
+/build/
+
+# Compiled binaries and debug artifacts
+*.exe
+*.dll
+*.obj
+*.o
+*.lib
+*.a
+*.so
+*.dylib
+*.pdb
+*.ilk
+*.class
+*.pyc
+*.pyd
+*.bin
+
+# Archives and compressed packages
+*.zip
+*.7z
+*.rar
+*.tar
+*.tgz
+*.gz
+*.bz2
+*.xz
+*.zst
+
+# Audio files
+*.wav
+*.mp3
+*.flac
+*.aac
+*.ogg
+*.opus
+*.m4a
+*.wma
+*.aif
+*.aiff
+*.mid
+*.midi
