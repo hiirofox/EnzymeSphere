@@ -13,6 +13,32 @@ add_executable(app
     "${CMAKE_SOURCE_DIR}/Source/main.cpp"
 )
 
+# OpenCL host API: the headers, import library, and ICD loader are kept in-tree.
+set(OPENCL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/External/OpenCL-Headers")
+set(OPENCL_IMPORT_LIBRARY "${CMAKE_SOURCE_DIR}/Library/OpenCL.lib")
+set(OPENCL_LOADER_DLL "${CMAKE_SOURCE_DIR}/Library/OpenCL.dll")
+
+foreach(_opencl_file IN ITEMS
+    "${OPENCL_INCLUDE_DIR}/CL/cl.h"
+    "${OPENCL_IMPORT_LIBRARY}"
+    "${OPENCL_LOADER_DLL}"
+)
+    if(NOT EXISTS "${_opencl_file}")
+        message(FATAL_ERROR "Required OpenCL file not found: ${_opencl_file}")
+    endif()
+endforeach()
+
+target_include_directories(app PRIVATE "${OPENCL_INCLUDE_DIR}")
+target_link_libraries(app PRIVATE "${OPENCL_IMPORT_LIBRARY}")
+
+# Make the Khronos ICD loader available when launching app.exe from Visual Studio.
+add_custom_command(TARGET app POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${OPENCL_LOADER_DLL}"
+        "$<TARGET_FILE_DIR:app>/OpenCL.dll"
+    VERBATIM
+)
+
 # Enzyme 无法区分 MSVC 二级 Debug STL 生成的已检查迭代器失败路径。
 # 因此在两个编译单元中统一使用级别 0。
 target_compile_definitions(app PRIVATE _ITERATOR_DEBUG_LEVEL=0)
