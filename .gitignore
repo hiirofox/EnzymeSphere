@@ -6,7 +6,6 @@
 *.dll
 *.obj
 *.o
-*.lib
 *.a
 *.so
 *.dylib
