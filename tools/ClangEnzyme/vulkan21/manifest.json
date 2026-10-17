@@ -1,0 +1,224 @@
+{
+  "llvm_version": "21.1.8",
+  "enzyme_commit": "2c8fd12d5ccc2f4f26a171f6a79ac170bc986ce4",
+  "hlsl_headers_source": "https://github.com/llvm/llvm-project/tree/llvmorg-21.1.8/clang/lib/Headers",
+  "inputs": {
+    "llvm-tools.pkg.tar.zst": {
+      "url": "https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-tools-21.1.8-4-any.pkg.tar.zst",
+      "sha256": "4fd52ebc34107912e1fe916a72b4e49dbb9bef21d6bb494086f82ba9c4aa86c3"
+    },
+    "llvm.pkg.tar.zst": {
+      "url": "https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-21.1.8-4-any.pkg.tar.zst",
+      "sha256": "dfe6c35196042a942853d9cfbe5adc80fd3ee6c57c9ee206e2d098eed3a9e1be"
+    },
+    "llvm-libs.pkg.tar.zst": {
+      "url": "https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-libs-21.1.8-4-any.pkg.tar.zst",
+      "sha256": "1f05053a8edfa90eaeae6840b60ef20a61d863f039a86a6e69d523879ae08e13"
+    },
+    "clang.pkg.tar.zst": {
+      "url": "https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-clang-21.1.8-4-any.pkg.tar.zst",
+      "sha256": "3df14f5d23ebaead5946b3e5619048a5085cc5502ce542fefd28bb566f92dba5"
+    },
+    "clang-libs.pkg.tar.zst": {
+      "url": "https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-clang-libs-21.1.8-4-any.pkg.tar.zst",
+      "sha256": "5924404bc08ea28d7591257e13fb8f6314507da60f2272fb702e062b8226f56c"
+    },
+    "spirv-tools.pkg.tar.zst": {
+      "url": "https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-spirv-tools-3~1.4.328.1-1-any.pkg.tar.zst",
+      "sha256": "1de27dd24a0ab691be7dc02c672ab2cb5bd7954087fc3cd40cdd7f4e0c138a0f"
+    }
+  },
+  "verification": {
+    "native_linux_enzyme_to_vulkan_spirv": "passed scalar and fixed three-parameter examples",
+    "vulkan_1_3_validation": "passed",
+    "cpu_gradient_numeric_check": "passed",
+    "windows_execution": "not_run",
+    "vulkan_dispatch": "not_run"
+  },
+  "files": {
+    "README.md": {
+      "size": 6079,
+      "sha256": "97de9af41191ba890505cc02b1916f79a5de3772e03c2b2819daabd6e1c9009f"
+    },
+    "bin/libSPIRV-Tools-opt.dll": {
+      "size": 3333120,
+      "sha256": "f6b50b8d7dc621d3496f53c04509403116d3aba74860a7d7c6e2f85ab3e5af04"
+    },
+    "bin/libSPIRV-Tools.dll": {
+      "size": 1753088,
+      "sha256": "cdb3b214ac6781ad441e9f6e076e641ac4f9e77320a5c8cc33defa6f556d5040"
+    },
+    "bin/llc.exe": {
+      "size": 269312,
+      "sha256": "11836498321f82fe8953a05fdaf79c6999ce3e6d418592b081e0247c72a0dce1"
+    },
+    "bin/llvm-link.exe": {
+      "size": 126976,
+      "sha256": "a0d84af6a4a8d9047c560232352dafb05abce067d55370f3bc4a1c1055faaa75"
+    },
+    "bin/opt.exe": {
+      "size": 376832,
+      "sha256": "4588fccb80fe3428e5e4702256047c13e9482017011a189783e4f49383a46be3"
+    },
+    "bin/spirv-dis.exe": {
+      "size": 151552,
+      "sha256": "e6bef93118c00ba4b976cf545e23eae35a8c383dea09d9c10e662d346e471434"
+    },
+    "bin/spirv-opt.exe": {
+      "size": 208384,
+      "sha256": "67a198a5aedb49c0defd446e443ea3804b59f356d00802d8a41eff0af1dafb39"
+    },
+    "bin/spirv-val.exe": {
+      "size": 193536,
+      "sha256": "b38703c5723dd501e98267a7f7ffa46c28a0310c0cae75d7455c281935fbecc7"
+    },
+    "build-vulkan.ps1": {
+      "size": 5663,
+      "sha256": "987a99e687035470b0c9913c74fb74dedeb8a747c0132e3935eb41919cfec7dc"
+    },
+    "examples/scalar.cpp": {
+      "size": 183,
+      "sha256": "8acb5aa4a0592e73b19ba3170b6df43e94dfa6e26b0e370b4c8f905e5bd51516"
+    },
+    "examples/scalar.hlsl": {
+      "size": 183,
+      "sha256": "46d623aa9a0f6d0c8a45188d59d1dc8e5c41a54e2e691f657faf1cac5dd5db49"
+    },
+    "examples/square.hlsl": {
+      "size": 167,
+      "sha256": "e49c678f597816402770258646cab7f2b1deabdb32b0926d57ff2767f83abeeb"
+    },
+    "examples/tasks.cpp": {
+      "size": 614,
+      "sha256": "db6ca1309871edc64cef56b133bfa08bb96ed9e5c00b2916bda4760fdace2535"
+    },
+    "examples/tasks.hlsl": {
+      "size": 561,
+      "sha256": "a816f8caf535d352dc797cfff0f2df38bef463ca9058a11f4854da66f8ade0b8"
+    },
+    "include/hlsl/hlsl_alias_intrinsics.h": {
+      "size": 103268,
+      "sha256": "6e92f0345455adff843a8caf9829a4eba183196965e594e3c0f45e459cf6db12"
+    },
+    "include/hlsl/hlsl_basic_types.h": {
+      "size": 3566,
+      "sha256": "100c550a5f2768e99ad6e6ccab98bf4196b934f865126abdc3d0e97a95aef041"
+    },
+    "include/hlsl/hlsl_compat_overloads.h": {
+      "size": 21591,
+      "sha256": "ae2673fc87bb8301f14fad01f0c0689965e97373654e9f4256fd7bd1694c2a20"
+    },
+    "include/hlsl/hlsl_detail.h": {
+      "size": 1457,
+      "sha256": "fb4e171db8a808c2e5de1daa7cd36365febd576b7ecbcd09945e2f12e29e4277"
+    },
+    "include/hlsl/hlsl_intrinsic_helpers.h": {
+      "size": 4423,
+      "sha256": "3671369bccd6544eef84e320ca26afb744a4bcd505c62783768d507de7d2dcce"
+    },
+    "include/hlsl/hlsl_intrinsics.h": {
+      "size": 19087,
+      "sha256": "d21949fcfad04b922a655132f6fb31316344da385d7a0a8d706f6f2501677b06"
+    },
+    "include/hlsl/hlsl_spirv.h": {
+      "size": 923,
+      "sha256": "4665c20e57168b82eb80f79025e17408f91128bce708204b8250778606d46fc2"
+    },
+    "include/hlsl.h": {
+      "size": 1149,
+      "sha256": "1c217d5640f89870643dde7c07a8027ebe1f4e4c1dcb88ff2e3ffe4959f67ced"
+    },
+    "licenses/LLVM-LICENSE": {
+      "size": 15141,
+      "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee"
+    },
+    "licenses/spirv-tools/LICENSE": {
+      "size": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "logs/ad-scalar.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "logs/ad-tasks.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "logs/check-gradients-cpu.py": {
+      "size": 1536,
+      "sha256": "06eeb7f0358f155c039eefbeba18429118113b3fe38330f7ee1bd58a3e50061b"
+    },
+    "logs/cpu-check.log": {
+      "size": 301,
+      "sha256": "1bbe561c7d2ad537d4885eb8e7d5564349977369a703471b3ad04518b07ca658"
+    },
+    "logs/pipeline.log": {
+      "size": 23,
+      "sha256": "258fda7d483e5241b1d1fc0c5559995630ed4eda404f454191f9f4e50884f662"
+    },
+    "logs/powershell-syntax-check.txt": {
+      "size": 99,
+      "sha256": "ca7f2e63724fd2ce364ae68aabf16f2d927013ef82c9f1d1c98d914eab16512f"
+    },
+    "logs/square.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "logs/test-pipeline.py": {
+      "size": 1895,
+      "sha256": "fc793c1cee06d35387b9025ebdf3b29a6d6c277600c9de308e57da9956799005"
+    },
+    "logs/windows-llvm-targets.txt": {
+      "size": 179,
+      "sha256": "89d537d66270d2430029c1febe0f5fe83a741d1d5472ec17a7e991abb60f011f"
+    },
+    "logs/windows-tool-dependencies.txt": {
+      "size": 3300,
+      "sha256": "ad7cfdad3097d325f22783d7d469ad2e9a4cada60887f4d88c00bf212f32bb70"
+    },
+    "verified/cpu-numeric-check.json": {
+      "size": 383,
+      "sha256": "5108d9e83e19a65c5b44aea3732b8030860e1081cdec3cd1c90901c953e0a022"
+    },
+    "verified/loss-gradient.ll": {
+      "size": 2444,
+      "sha256": "5fb8114bf1c05d83825f5ee57dc029271552928e3c8abe2efeb36cbb4aac125a"
+    },
+    "verified/scalar-ready.ll": {
+      "size": 2482,
+      "sha256": "aa8f12c61d1a44a5ea4069f74ed03eaf69f95ad680dc565cc8375a05d8abd7fe"
+    },
+    "verified/scalar.spv": {
+      "size": 724,
+      "sha256": "136e5d4945ca116c7c0582990a7ea81d4e4f48683dfa31bd5fb8d1011f682e5a"
+    },
+    "verified/scalar.spvasm": {
+      "size": 2175,
+      "sha256": "c59a23a15ad8c5b070cebccd55c1e7bd36b92c1ff0bf07c44b55da3bc6d53d2d"
+    },
+    "verified/square.spv": {
+      "size": 656,
+      "sha256": "1db777efade84b70f2dae2b22d9b196220bcb8faefb38ace3e282796bf332134"
+    },
+    "verified/square.spvasm": {
+      "size": 1990,
+      "sha256": "1722f78577f7b6c4b4ddbb2164feaabc837dd0d6a02426c4fdf8f41095ade912"
+    },
+    "verified/tasks-gradient.ll": {
+      "size": 11007,
+      "sha256": "c1750c201cc2dbbc2e97cd4448175d3780862d1da3584407c1cbc90a383a3243"
+    },
+    "verified/tasks-ready.ll": {
+      "size": 5106,
+      "sha256": "54b164703da962dd986110aa304bfb7b190828c2857aab4fa6fa64eadf193c0e"
+    },
+    "verified/tasks.spv": {
+      "size": 1688,
+      "sha256": "70d74bf13353189dc89d6df41f9794d0ad4fb3b4249881c4c18777f16688dd21"
+    },
+    "verified/tasks.spvasm": {
+      "size": 4756,
+      "sha256": "2d95d887fb8e695d1c28c8a76be8dab090ef0e09e23da9978d71038ef5339147"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "note": "CPU check of Enzyme-generated gradient IR; SPIR calling conventions and target layout adapted to x86_64 for this check. This is not Vulkan execution.",
+  "results": {
+    "scalar": [
+      -4.0,
+      0.0,
+      1.0,
+      6.0
+    ],
+    "tasks": [
+      [
+        4.0,
+        4.0,
+        6.0
+      ],
+      [
+        2.0,
+        2.0,
+        4.0
+      ]
+    ]
+  }
+}

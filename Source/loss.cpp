@@ -1,45 +1,90 @@
-template<class T>
-T loss_core(T x)
+#if defined(LOSS_WRAPPER_OPENCL)
+// OpenCL SPIR-V compatibility probe: these constructs preserve the loss math.
+struct LossTerm
 {
-    return x * x * x + T(2) * x;
-}
+    float difference;
+    ~LossTerm() {}
+};
 
-#if defined(__OPENCL_CPP_VERSION__)
-
-// C++ for OpenCL's builtin header from the bundled ClangEnzyme package is
-// currently absent. The experiment supplies only the size_t typedef it needs.
-#pragma OPENCL EXTENSION __cl_clang_function_pointers : enable
-
-extern "C" float __enzyme_autodiff(void*, float);
-
-__attribute__((noinline)) float loss_device(float x)
+template <typename T, int N>
+struct FixedArray
 {
-    return loss_core(x);
-}
+    T values[N];
 
-kernel void loss_gradient_kernel(global const float* inputs,
-                                 global float* gradients,
-                                 uint count)
+    T& operator[](int index)
+    {
+        return values[index];
+    }
+};
+
+constexpr float loss_square(float value)
 {
-    const size_t task = get_global_id(0);
-    if (task < count)
-        gradients[task] = __enzyme_autodiff((void*)loss_device, inputs[task]);
+    return value * value;
 }
-
 #else
-
-#include "loss.h"
-
-extern "C" double __enzyme_autodiff(void*, double);
-
-double loss(double x)
+struct LossTerm
 {
-    return loss_core(x);
-}
-
-double gradient(double x)
-{
-    return __enzyme_autodiff((void*)loss, x);
-}
-
+    float difference;
+};
 #endif
+
+enum class LossTaskKind
+{
+    Zero,
+    Other
+};
+
+float loss(int task, int NumTasks, float* params, int NumParams)
+{
+    (void)NumTasks;
+    if (NumParams <= 0)
+        return 0.0f;
+
+    const LossTaskKind taskKind = task == 0 ? LossTaskKind::Zero : LossTaskKind::Other;
+    int taskBase = 0;
+    switch (taskKind)
+    {
+    case LossTaskKind::Zero:
+        taskBase = 0;
+        break;
+    case LossTaskKind::Other:
+        taskBase = task;
+        break;
+    }
+
+    constexpr float lossScale = 1.0f;
+    float taskLoss = 0.0f;
+    int i = 0;
+    while (i < NumParams)
+    {
+#if defined(LOSS_WRAPPER_OPENCL)
+        LossTerm term{params[i] - static_cast<float>(taskBase + i)};
+        const float& difference = term.difference;
+        FixedArray<float, 1> oneTerm{{difference}};
+        for (int j = 0; j < 1; ++j)
+        {
+            float value = oneTerm[j];
+            float magnitude = value;
+            if (magnitude < 0.0f)
+                magnitude = -magnitude;
+            taskLoss += lossScale * [=](float x)
+            {
+                return loss_square(x);
+            }(magnitude);
+        }
+#else
+        LossTerm term{params[i] - static_cast<float>(taskBase + i)};
+        const float& difference = term.difference;
+        float oneTerm[1] = {difference};
+        for (float value : oneTerm)
+        {
+            float magnitude = value;
+            if (magnitude < 0.0f)
+                magnitude = -magnitude;
+            taskLoss += lossScale * (magnitude * magnitude);
+        }
+#endif
+        ++i;
+    }
+    return taskLoss;
+}
