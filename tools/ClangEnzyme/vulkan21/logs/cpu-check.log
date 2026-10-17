@@ -1,5 +1,0 @@
-warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-1 warning generated.
-warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-1 warning generated.
-{"scalar": [-4.0, 0.0, 1.0, 6.0], "tasks": [[4.0, 4.0, 6.0], [2.0, 2.0, 4.0]]}

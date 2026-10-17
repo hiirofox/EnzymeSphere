@@ -1,1 +1,0 @@
-Tree-sitter PowerShell parser: no syntax error nodes. This is not execution on Windows PowerShell.
