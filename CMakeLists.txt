@@ -60,3 +60,41 @@ add_enzyme_object(loss_gradient
 
 add_dependencies(app loss_gradient)
 target_link_libraries(app PRIVATE "${loss_gradient_OBJECT}")
+
+# Temporary end-to-end experiment: compile the same loss.cpp for the SPIR-V
+# target with Enzyme enabled, then load that IL from the OpenCL host app.
+# The bundled ClangEnzyme distribution is missing its OpenCL builtin header;
+# this minimal generated header provides size_t for this kernel-only test.
+set(OPENCL_SPIRV_INCLUDE_DIR "${CMAKE_BINARY_DIR}/opencl-spirv-include")
+file(MAKE_DIRECTORY "${OPENCL_SPIRV_INCLUDE_DIR}")
+file(WRITE "${OPENCL_SPIRV_INCLUDE_DIR}/opencl-c-base.h"
+    "typedef unsigned long size_t;\ntypedef unsigned int uint;\n")
+
+set(OPENCL_SPIRV_FILE "${CMAKE_BINARY_DIR}/enzyme_loss_gradient.spv")
+add_custom_command(
+    OUTPUT "${OPENCL_SPIRV_FILE}"
+    COMMAND "${CMAKE_SOURCE_DIR}/tools/ClangEnzyme/clang.exe"
+        -x cl
+        -cl-std=clc++
+        -target spirv64
+        "-fpass-plugin=${CMAKE_SOURCE_DIR}/tools/ClangEnzyme/ClangEnzyme-21.dll"
+        -I "${OPENCL_SPIRV_INCLUDE_DIR}"
+        -O1
+        -c "${CMAKE_SOURCE_DIR}/Source/loss.cpp"
+        -o "${OPENCL_SPIRV_FILE}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/Source/loss.cpp"
+        "${CMAKE_SOURCE_DIR}/tools/ClangEnzyme/clang.exe"
+        "${CMAKE_SOURCE_DIR}/tools/ClangEnzyme/ClangEnzyme-21.dll"
+    COMMENT "ClangEnzyme: loss.cpp -> OpenCL SPIR-V"
+    COMMAND_EXPAND_LISTS
+    VERBATIM
+)
+add_custom_target(loss_gradient_spirv DEPENDS "${OPENCL_SPIRV_FILE}")
+add_dependencies(app loss_gradient_spirv)
+add_custom_command(TARGET app POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${OPENCL_SPIRV_FILE}"
+        "$<TARGET_FILE_DIR:app>/enzyme_loss_gradient.spv"
+    VERBATIM
+)

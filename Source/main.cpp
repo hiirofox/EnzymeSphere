@@ -1,79 +1,117 @@
-#define CL_TARGET_OPENCL_VERSION 120
+#define CL_TARGET_OPENCL_VERSION 300
 #include <CL/cl.h>
 
+#include "loss.h"
+
 #include <array>
+#include <cmath>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+
 namespace
 {
-constexpr std::size_t kElementCount = 4;
+std::string executableDirectory()
+{
+    std::vector<char> path(32768, '\0');
+    const DWORD length = GetModuleFileNameA(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0 || length >= path.size())
+        return {};
+    return std::string(path.data(), length).substr(
+        0, std::string(path.data(), length).find_last_of("\\/"));
+}
 
-std::string getDeviceName(cl_device_id device)
+std::string getDeviceString(cl_device_id device, cl_device_info key)
 {
     std::size_t size = 0;
-    if (clGetDeviceInfo(device, CL_DEVICE_NAME, 0, nullptr, &size) != CL_SUCCESS || size == 0)
-        return "(unknown device)";
+    if (clGetDeviceInfo(device, key, 0, nullptr, &size) != CL_SUCCESS || size == 0)
+        return {};
+    std::vector<char> text(size, '\0');
+    if (clGetDeviceInfo(device, key, size, text.data(), nullptr) != CL_SUCCESS)
+        return {};
+    return text.data();
+}
 
-    std::vector<char> name(size);
-    if (clGetDeviceInfo(device, CL_DEVICE_NAME, size, name.data(), nullptr) != CL_SUCCESS)
-        return "(unknown device)";
-    return name.data();
+std::string getPlatformString(cl_platform_id platform, cl_platform_info key)
+{
+    std::size_t size = 0;
+    if (clGetPlatformInfo(platform, key, 0, nullptr, &size) != CL_SUCCESS || size == 0)
+        return {};
+    std::vector<char> text(size, '\0');
+    if (clGetPlatformInfo(platform, key, size, text.data(), nullptr) != CL_SUCCESS)
+        return {};
+    return text.data();
+}
+
+bool check(cl_int status, const char* operation)
+{
+    if (status == CL_SUCCESS)
+        return true;
+    std::cerr << operation << " failed with OpenCL error " << status << '\n';
+    return false;
 }
 }
 
 int main()
 {
-    const std::array<float, kElementCount> a{ 1.0f, 2.0f, 3.0f, 4.0f };
-    const std::array<float, kElementCount> b{ 10.0f, 20.0f, 30.0f, 40.0f };
-    std::array<float, kElementCount> result{};
+    constexpr std::array<float, 5> inputs{ -2.0f, -0.5f, 0.0f, 1.5f, 3.0f };
+    std::array<float, inputs.size()> gradients{};
 
-    const char* kernelSource = R"CLC(
-        __kernel void vector_add(
-            __global const float* a,
-            __global const float* b,
-            __global float* result,
-            const uint count)
-        {
-            const size_t i = get_global_id(0);
-            if (i < count)
-                result[i] = a[i] + b[i];
-        }
-    )CLC";
-
-    cl_int status = CL_SUCCESS;
     cl_uint platformCount = 0;
-    status = clGetPlatformIDs(0, nullptr, &platformCount);
-    if (status != CL_SUCCESS || platformCount == 0)
+    if (!check(clGetPlatformIDs(0, nullptr, &platformCount), "clGetPlatformIDs") || platformCount == 0)
     {
-        std::cerr << "No OpenCL platform is available (clGetPlatformIDs returned "
-                  << status << "). Install an OpenCL ICD/driver for a device on this machine.\n";
+        std::cerr << "No OpenCL platform is available.\n";
         return 1;
     }
-
     std::vector<cl_platform_id> platforms(platformCount);
-    status = clGetPlatformIDs(platformCount, platforms.data(), nullptr);
-    if (status != CL_SUCCESS)
-    {
-        std::cerr << "clGetPlatformIDs failed: " << status << '\n';
+    if (!check(clGetPlatformIDs(platformCount, platforms.data(), nullptr), "clGetPlatformIDs"))
         return 1;
+
+    std::cout << "OpenCL device inventory:\n";
+    for (cl_platform_id platform : platforms)
+    {
+        std::cout << "  Platform: " << getPlatformString(platform, CL_PLATFORM_NAME) << '\n';
+        cl_uint allDeviceCount = 0;
+        const cl_int countStatus = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, nullptr, &allDeviceCount);
+        if (countStatus != CL_SUCCESS || allDeviceCount == 0)
+            continue;
+        std::vector<cl_device_id> allDevices(allDeviceCount);
+        if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, allDeviceCount, allDevices.data(), nullptr) != CL_SUCCESS)
+            continue;
+        for (cl_device_id item : allDevices)
+        {
+            cl_device_type type = 0;
+            clGetDeviceInfo(item, CL_DEVICE_TYPE, sizeof(type), &type, nullptr);
+            const std::string itemIL = getDeviceString(item, CL_DEVICE_IL_VERSION);
+            const std::string itemExtensions = getDeviceString(item, CL_DEVICE_EXTENSIONS);
+            std::cout << "    " << ((type & CL_DEVICE_TYPE_GPU) ? "GPU" : (type & CL_DEVICE_TYPE_CPU) ? "CPU" : "other")
+                      << ": " << getDeviceString(item, CL_DEVICE_NAME)
+                      << " | IL=" << (itemIL.empty() ? "(none)" : itemIL)
+                      << " | cl_khr_il_program="
+                      << (itemExtensions.find("cl_khr_il_program") != std::string::npos ? "yes" : "no") << '\n';
+        }
     }
 
     cl_device_id device = nullptr;
-    for (const cl_device_type type : { CL_DEVICE_TYPE_GPU, CL_DEVICE_TYPE_CPU })
+    for (cl_platform_id platform : platforms)
     {
-        for (cl_platform_id platform : platforms)
+        cl_uint count = 0;
+        const cl_int query = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &count);
+        if (query != CL_SUCCESS || count == 0)
+            continue;
+        std::vector<cl_device_id> devices(count);
+        if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, count, devices.data(), nullptr) == CL_SUCCESS)
         {
-            cl_uint deviceCount = 0;
-            status = clGetDeviceIDs(platform, type, 0, nullptr, &deviceCount);
-            if (status == CL_SUCCESS && deviceCount > 0)
+            for (cl_device_id candidate : devices)
             {
-                std::vector<cl_device_id> devices(deviceCount);
-                status = clGetDeviceIDs(platform, type, deviceCount, devices.data(), nullptr);
-                if (status == CL_SUCCESS)
+                if (getDeviceString(candidate, CL_DEVICE_IL_VERSION).find("SPIR-V") != std::string::npos)
                 {
-                    device = devices.front();
+                    device = candidate;
                     break;
                 }
             }
@@ -81,129 +119,153 @@ int main()
         if (device != nullptr)
             break;
     }
-
     if (device == nullptr)
     {
-        std::cerr << "OpenCL platforms were found, but no GPU or CPU device was available.\n";
+        std::cerr << "No OpenCL GPU with SPIR-V IL support is available.\n";
         return 1;
     }
 
-    cl_context context = nullptr;
-    cl_command_queue queue = nullptr;
-    cl_program program = nullptr;
-    cl_kernel kernel = nullptr;
-    cl_mem bufferA = nullptr;
-    cl_mem bufferB = nullptr;
-    cl_mem bufferResult = nullptr;
-    int exitCode = 1;
+    const std::string ilVersion = getDeviceString(device, CL_DEVICE_IL_VERSION);
+    std::cout << "OpenCL GPU: " << getDeviceString(device, CL_DEVICE_NAME) << '\n';
+    std::cout << "OpenCL version: " << getDeviceString(device, CL_DEVICE_VERSION) << '\n';
+    std::cout << "SPIR-V IL version: " << (ilVersion.empty() ? "not reported" : ilVersion) << '\n';
+    const std::string extensions = getDeviceString(device, CL_DEVICE_EXTENSIONS);
+    std::cout << "cl_khr_il_program: "
+              << (extensions.find("cl_khr_il_program") != std::string::npos ? "yes" : "no") << '\n';
 
-    do
+    const std::string spirvPath = executableDirectory() + "\\enzyme_loss_gradient.spv";
+    std::ifstream file(spirvPath, std::ios::binary);
+    if (!file)
     {
-        context = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &status);
-        if (status != CL_SUCCESS || context == nullptr)
-        {
-            std::cerr << "clCreateContext failed: " << status << '\n';
-            break;
-        }
+        std::cerr << "Cannot open SPIR-V module: " << spirvPath << '\n';
+        return 1;
+    }
+    const std::vector<unsigned char> spirv(
+        (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>{});
+    if (spirv.empty())
+    {
+        std::cerr << "SPIR-V module is empty.\n";
+        return 1;
+    }
 
-        queue = clCreateCommandQueue(context, device, 0, &status);
-        if (status != CL_SUCCESS || queue == nullptr)
-        {
-            std::cerr << "clCreateCommandQueue failed: " << status << '\n';
-            break;
-        }
+    cl_int status = CL_SUCCESS;
+    cl_context context = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &status);
+    if (!check(status, "clCreateContext") || context == nullptr)
+        return 1;
 
-        const std::size_t sourceLength = std::char_traits<char>::length(kernelSource);
-        program = clCreateProgramWithSource(context, 1, &kernelSource, &sourceLength, &status);
-        if (status != CL_SUCCESS || program == nullptr)
-        {
-            std::cerr << "clCreateProgramWithSource failed: " << status << '\n';
-            break;
-        }
+    cl_command_queue queue = clCreateCommandQueue(context, device, 0, &status);
+    if (!check(status, "clCreateCommandQueue") || queue == nullptr)
+    {
+        clReleaseContext(context);
+        return 1;
+    }
 
-        status = clBuildProgram(program, 1, &device, nullptr, nullptr, nullptr);
-        if (status != CL_SUCCESS)
-        {
-            std::size_t logSize = 0;
-            clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-            std::vector<char> buildLog(logSize + 1, '\0');
-            if (logSize > 0)
-                clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buildLog.data(), nullptr);
-            std::cerr << "clBuildProgram failed: " << status << "\n" << buildLog.data() << '\n';
-            break;
-        }
+    cl_program program = clCreateProgramWithIL(context, spirv.data(), spirv.size(), &status);
+    if (!check(status, "clCreateProgramWithIL") || program == nullptr)
+    {
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
 
-        kernel = clCreateKernel(program, "vector_add", &status);
-        if (status != CL_SUCCESS || kernel == nullptr)
-        {
-            std::cerr << "clCreateKernel failed: " << status << '\n';
-            break;
-        }
+    status = clBuildProgram(program, 1, &device, nullptr, nullptr, nullptr);
+    if (!check(status, "clBuildProgram"))
+    {
+        std::size_t logSize = 0;
+        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+        std::vector<char> log(logSize + 1, '\0');
+        if (logSize > 0)
+            clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, log.data(), nullptr);
+        std::cerr << log.data() << '\n';
+        clReleaseProgram(program);
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
 
-        bufferA = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                 sizeof(a), const_cast<float*>(a.data()), &status);
-        if (status != CL_SUCCESS || bufferA == nullptr)
-        {
-            std::cerr << "Creating input buffer A failed: " << status << '\n';
-            break;
-        }
+    cl_kernel kernel = clCreateKernel(program, "loss_gradient_kernel", &status);
+    if (!check(status, "clCreateKernel") || kernel == nullptr)
+    {
+        clReleaseProgram(program);
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
 
-        bufferB = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                 sizeof(b), const_cast<float*>(b.data()), &status);
-        if (status != CL_SUCCESS || bufferB == nullptr)
-        {
-            std::cerr << "Creating input buffer B failed: " << status << '\n';
-            break;
-        }
+    cl_mem inputBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                        sizeof(inputs), const_cast<float*>(inputs.data()), &status);
+    if (!check(status, "clCreateBuffer(inputs)"))
+    {
+        clReleaseKernel(kernel);
+        clReleaseProgram(program);
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
+    cl_mem gradientBuffer = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(gradients), nullptr, &status);
+    if (!check(status, "clCreateBuffer(gradients)"))
+    {
+        clReleaseMemObject(inputBuffer);
+        clReleaseKernel(kernel);
+        clReleaseProgram(program);
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
 
-        bufferResult = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(result), nullptr, &status);
-        if (status != CL_SUCCESS || bufferResult == nullptr)
-        {
-            std::cerr << "Creating output buffer failed: " << status << '\n';
-            break;
-        }
+    const cl_uint count = static_cast<cl_uint>(inputs.size());
+    status = clSetKernelArg(kernel, 0, sizeof(inputBuffer), &inputBuffer);
+    status |= clSetKernelArg(kernel, 1, sizeof(gradientBuffer), &gradientBuffer);
+    status |= clSetKernelArg(kernel, 2, sizeof(count), &count);
+    if (!check(status, "clSetKernelArg"))
+    {
+        clReleaseMemObject(gradientBuffer);
+        clReleaseMemObject(inputBuffer);
+        clReleaseKernel(kernel);
+        clReleaseProgram(program);
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
 
-        status = clSetKernelArg(kernel, 0, sizeof(bufferA), &bufferA);
-        status |= clSetKernelArg(kernel, 1, sizeof(bufferB), &bufferB);
-        status |= clSetKernelArg(kernel, 2, sizeof(bufferResult), &bufferResult);
-        const cl_uint count = static_cast<cl_uint>(kElementCount);
-        status |= clSetKernelArg(kernel, 3, sizeof(count), &count);
-        if (status != CL_SUCCESS)
-        {
-            std::cerr << "clSetKernelArg failed: " << status << '\n';
-            break;
-        }
+    const std::size_t globalSize = inputs.size();
+    status = clEnqueueNDRangeKernel(queue, kernel, 1, nullptr, &globalSize, nullptr, 0, nullptr, nullptr);
+    if (status == CL_SUCCESS)
+        status = clEnqueueReadBuffer(queue, gradientBuffer, CL_TRUE, 0, sizeof(gradients), gradients.data(),
+                                     0, nullptr, nullptr);
+    if (!check(status, "OpenCL kernel execution"))
+    {
+        clReleaseMemObject(gradientBuffer);
+        clReleaseMemObject(inputBuffer);
+        clReleaseKernel(kernel);
+        clReleaseProgram(program);
+        clReleaseCommandQueue(queue);
+        clReleaseContext(context);
+        return 1;
+    }
 
-        const std::size_t globalSize = kElementCount;
-        status = clEnqueueNDRangeKernel(queue, kernel, 1, nullptr, &globalSize,
-                                        nullptr, 0, nullptr, nullptr);
-        if (status != CL_SUCCESS)
-        {
-            std::cerr << "clEnqueueNDRangeKernel failed: " << status << '\n';
-            break;
-        }
+    bool matches = true;
+    for (std::size_t i = 0; i < inputs.size(); ++i)
+    {
+        const double hostGradient = gradient(static_cast<double>(inputs[i]));
+        const double difference = std::abs(static_cast<double>(gradients[i]) - hostGradient);
+        std::cout << "x=" << inputs[i] << " GPU gradient=" << gradients[i]
+                  << " host Enzyme gradient=" << hostGradient << '\n';
+        matches = matches && difference < 1.0e-5;
+    }
 
-        status = clEnqueueReadBuffer(queue, bufferResult, CL_TRUE, 0, sizeof(result),
-                                     result.data(), 0, nullptr, nullptr);
-        if (status != CL_SUCCESS)
-        {
-            std::cerr << "clEnqueueReadBuffer failed: " << status << '\n';
-            break;
-        }
+    clReleaseMemObject(gradientBuffer);
+    clReleaseMemObject(inputBuffer);
+    clReleaseKernel(kernel);
+    clReleaseProgram(program);
+    clReleaseCommandQueue(queue);
+    clReleaseContext(context);
 
-        std::cout << "OpenCL device: " << getDeviceName(device) << '\n';
-        std::cout << "Vector sum: ";
-        for (std::size_t i = 0; i < kElementCount; ++i)
-            std::cout << result[i] << (i + 1 == kElementCount ? '\n' : ' ');
-        exitCode = 0;
-    } while (false);
-
-    if (bufferResult != nullptr) clReleaseMemObject(bufferResult);
-    if (bufferB != nullptr) clReleaseMemObject(bufferB);
-    if (bufferA != nullptr) clReleaseMemObject(bufferA);
-    if (kernel != nullptr) clReleaseKernel(kernel);
-    if (program != nullptr) clReleaseProgram(program);
-    if (queue != nullptr) clReleaseCommandQueue(queue);
-    if (context != nullptr) clReleaseContext(context);
-    return exitCode;
+    if (!matches)
+    {
+        std::cerr << "GPU SPIR-V gradients differ from host Enzyme gradients.\n";
+        return 3;
+    }
+    std::cout << "PASS: Enzyme-generated SPIR-V gradients ran on the OpenCL GPU and match host results.\n";
+    return 0;
 }
