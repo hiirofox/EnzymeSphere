@@ -1,2 +1,14 @@
-cmake -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Debug --target app
+
+Outputs:
+
+    build/app.exe
+    build/objects/loss_gradient/Debug/loss_gradient.obj
+    build/loss_gradient_vulkan/Debug/loss_gradient_vulkan.spv
+    build/loss_gradient_vulkan.spv
+
+The final SPIR-V is also copied beside app.exe so the app can load it at run
+time. Run the sample with:
+
+    .\build\app.exe

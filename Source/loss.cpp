@@ -1,5 +1,5 @@
-#if defined(LOSS_WRAPPER_OPENCL)
-// OpenCL SPIR-V compatibility probe: these constructs preserve the loss math.
+// Cross-backend C++ compatibility probe: use the same source constructs for
+// OpenCL SPIR-V, Vulkan SPIR-V, and the CPU Enzyme reference.
 struct LossTerm
 {
     float difference;
@@ -21,12 +21,6 @@ constexpr float loss_square(float value)
 {
     return value * value;
 }
-#else
-struct LossTerm
-{
-    float difference;
-};
-#endif
 
 enum class LossTaskKind
 {
@@ -57,7 +51,6 @@ float loss(int task, int NumTasks, float* params, int NumParams)
     int i = 0;
     while (i < NumParams)
     {
-#if defined(LOSS_WRAPPER_OPENCL)
         LossTerm term{params[i] - static_cast<float>(taskBase + i)};
         const float& difference = term.difference;
         FixedArray<float, 1> oneTerm{{difference}};
@@ -72,18 +65,6 @@ float loss(int task, int NumTasks, float* params, int NumParams)
                 return loss_square(x);
             }(magnitude);
         }
-#else
-        LossTerm term{params[i] - static_cast<float>(taskBase + i)};
-        const float& difference = term.difference;
-        float oneTerm[1] = {difference};
-        for (float value : oneTerm)
-        {
-            float magnitude = value;
-            if (magnitude < 0.0f)
-                magnitude = -magnitude;
-            taskLoss += lossScale * (magnitude * magnitude);
-        }
-#endif
         ++i;
     }
     return taskLoss;
