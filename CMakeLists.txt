@@ -33,4 +33,14 @@ add_enzyme_object(loss_gradient
 )
 
 add_dependencies(app loss_gradient)
+
 target_link_libraries(app PRIVATE "${loss_gradient_OBJECT}")
+
+target_link_libraries(app PRIVATE
+    user32
+    gdi32
+    shell32
+    ole32
+    d2d1
+    dwrite
+)
