@@ -3,7 +3,7 @@
 #include "sm.h"
 #include "optimizer.h"
 
-AdamW<float> opt{ .001, .01, .9, .999 };
+AdamW<float> opt{ .0001, .01, .9999, .9999 };
 constexpr static int NumParams = sm::SynthModel::GetNumParams();
 float params[NumParams];
 float grads[NumParams];
@@ -47,7 +47,7 @@ int main()
 		float loss = gradient(params, grads, NumParams);
 		opt.Update(params, grads, NumParams, loss);
 		printf("iter:%d loss=%.5f\n", iter, loss);
-		if (iter % 200 == 0)
+		if (iter % 20 == 0)
 		{
 			SaveCheckpoint();
 		}

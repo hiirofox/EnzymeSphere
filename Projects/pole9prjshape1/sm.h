@@ -15,13 +15,13 @@ namespace sm
 		void Params2Vec(float* out)
 		{
 			int idx = 0;
-			for (int i = 0; i < NumOPs; ++i)out[idx++] = freqs[i];
+			for (int i = 0; i < NumOPs; ++i)out[idx++] = (freqs[i] - 0.5001) / 0.1;
 			for (int j = 0; j < NumOPs; ++j)for (int k = j + 1; k < NumOPs; ++k)out[idx++] = modmat[j][k] / 8.;
 		}
 		void Vec2Params(float* in)
 		{
 			int idx = 0;
-			for (int i = 0; i < NumOPs; ++i)freqs[i] = in[idx++];
+			for (int i = 0; i < NumOPs; ++i)freqs[i] = in[idx++] * 0.1 + 0.5001;
 			for (int j = 0; j < NumOPs; ++j)for (int k = 0; k < NumOPs; ++k)modmat[j][k] = 0.0f;
 			for (int j = 0; j < NumOPs; ++j)for (int k = j + 1; k < NumOPs; ++k)modmat[j][k] = in[idx++] * 8.;
 		}
@@ -263,8 +263,8 @@ namespace sm
 			return v;
 		}
 
-		constexpr static int NumBatchesSmoooth = 50;
-		constexpr static int NumBatchesRand = 50;
+		constexpr static int NumBatchesSmoooth = 100;
+		constexpr static int NumBatchesRand = 100;
 
 		constexpr static int BatchSize = 2048;
 		float tre1[BatchSize];
@@ -286,8 +286,9 @@ namespace sm
 				float lx = randf(), ly = randf();
 				float epsx = randf(), epsy = randf();
 				float r = std::sqrtf(epsx * epsx + epsy * epsy);
-				epsx = epsx / r * 0.01;
-				epsy = epsy / r * 0.01;
+				float eps = 0.01;
+				epsx = epsx / r * eps;
+				epsy = epsy / r * eps;
 				float time = randf() * 1000.;
 				LatentSample(lx - epsx, ly - epsx);
 				Reset(time);
@@ -300,6 +301,10 @@ namespace sm
 				fm.ProcessBlock(tre3, BatchSize);
 				for (int i = 0; i < BatchSize; ++i)
 				{
+					float window = 0.5 - 0.5 * cosf((float)i / BatchSize * 2. * 3.1415926535);
+					tre1[i] *= window;
+					tre2[i] *= window;
+					tre3[i] *= window;
 					tim1[i] = 0;
 					tim2[i] = 0;
 					tim3[i] = 0;
@@ -335,6 +340,8 @@ namespace sm
 				fm.ProcessBlock(tre1, BatchSize);
 				for (int i = 0; i < BatchSize; ++i)
 				{
+					float window = 0.5 - 0.5 * cosf((float)i / BatchSize * 2. * 3.1415926535);
+					tre1[i] *= window;
 					tim1[i] = 0;
 				}
 				FFT(tre1, tim1, BatchSize, false);
@@ -354,7 +361,9 @@ namespace sm
 			}
 			totvar /= BatchSize / 2;
 
-			return log(totsmoothloss + 1.) / 7. + log(1000. / (1. + totvar) + 1.);
+			//double loss1 = log(totsmoothloss + 1.) / 7. + log(1000. / (1. + totvar) + 1.);
+			double loss2 = totsmoothloss / 40. + 100. / (1. + totvar);// 
+			return loss2 * 100.;
 		}
 	};
 }
