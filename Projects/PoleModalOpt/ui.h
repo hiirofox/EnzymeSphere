@@ -48,7 +48,6 @@ public:
 	}
 
 protected:
-
 	std::complex<double> DampOscHw(double omega, double a, double k, double w, double phi)
 	{
 		//Aexp(-kt)cos(wt+phi)
@@ -64,11 +63,16 @@ protected:
 		g.CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.0f, 0.0f, 1.0f), &brush2);
 		D2D1_SIZE_F size = g.GetSize();
 		double lasty = 0, lastw;
+
+		constexpr static double nyqx = 4;
 		for (int i = 1; i < size.width; ++i)
 		{
-			double omega = (double)i / size.width * 3.14159265358979 * 2.0 * 1.0;
+			const double lw = log(8.3333e-4), hw = log(3.14159265 * nyqx);
+			const double x = (double)i / size.width;
+			double omega = exp(x * (hw - lw) + lw);//nyq->pi
+
 			double t = (double)i / size.width * 3.14159265358979 * 20.0;
-			std::complex<double>hw{ 0.,0. };
+			std::complex<double>hs{ 0.,0. };
 			double ht = 0.;
 			for (int j = 0; j < numParams; j += 4)
 			{
@@ -76,10 +80,10 @@ protected:
 				double k = ps[j + 1];
 				double w = ps[j + 2];
 				double phi = ps[j + 3];
-				hw += DampOscHw(omega, a, k, w, phi);
+				hs += DampOscHw(omega, a, k, w, phi);
 				ht += a * exp(-k * t) * cos(w * t + phi);
 			}
-			double magdb = 20. * std::log10(std::abs(hw));
+			double magdb = 20. * std::log10(std::abs(hs));
 			const double highdb = 20.;
 			const double lowdb = -60.;
 			double y = size.height - (magdb - lowdb) / (highdb - lowdb) * size.height;

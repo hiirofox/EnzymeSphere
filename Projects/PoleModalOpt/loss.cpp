@@ -17,12 +17,18 @@ void loss(double* params, double* lossOut, int numParams)
 {
 	//a,k,w,phi为一个模态
 	constexpr static int N = 1000;
-	constexpr static int nyq = N / 4;
+	constexpr static double nyqx = 16;
+	constexpr static double eps = 0.01;
 	double loss = 0.0;
+	double lpass = 0., lstop = 0.;
+	int ipass = 0, istop = 0;
 	for (int n = 0; n <= N; ++n)
 	{
 		std::complex<double> h{ 0., 0. };
-		double omega = (double)n / nyq * 3.14159265358979;//nyq->pi
+
+		const double lw = log(8.3333e-4), hw = log(3.14159265 * nyqx);
+		const double x = (double)n / N;
+		double omega = exp(x * (hw - lw) + lw);//nyq->pi
 		for (int i = 0; i < numParams; i += 4)
 		{
 			double a = params[i + 0];
@@ -32,25 +38,23 @@ void loss(double* params, double* lossOut, int numParams)
 			h += DampOscHw(omega, a, k, w, phi);
 		}
 		double mag = std::abs(h);
-		double l = 0;
-		if (n == 0)
+		if (omega < 3.1415926535)
 		{
-			l = mag;
-			l = l * l * 10.0;
+			double l = log10(mag);
+			l = pow(l, 2.) * 200.0;
+			lpass += l;
+			ipass++;
 		}
-		else if (n < nyq - 1)
+		else
 		{
-			l = mag - 1.;
-			l = l * l * l * l * 10000.;
+			double l = log10(mag) + 3.;
+			l = pow(l, 2.);
+			lstop += l;
+			istop++;
 		}
-		else if (n >= nyq)
-		{
-			l = mag;
-			l = l * l * 100.;
-		}
-		loss += l;
 	}
-	*lossOut = loss / N;
+	loss = lpass / ipass + lstop / istop;
+	*lossOut = loss * 10.0;
 }
 
 double gradient(const double* params, double* grad, int numParams)

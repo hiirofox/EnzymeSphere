@@ -31,7 +31,7 @@ int main()
 		for (int i = 0; i < numParams; i += 4)
 		{
 			double k = params[i + 1];//k
-			params[i + 1] = std::abs(k) + 1e-6;
+			params[i + 1] = std::abs(k) + 1e-5;
 		}
 		printf("iter:%3d loss=%.5f\n", iter, loss);
 		canvas.UpdateAndRepaint(params, numParams);

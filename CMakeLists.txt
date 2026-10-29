@@ -9,8 +9,11 @@ project(EnzymeSphere LANGUAGES CXX)
 
 add_subdirectory(tools/ClangEnzyme)
 
+#设置项目路径
+set(ProjectPath "${CMAKE_SOURCE_DIR}/Projects/pole9prjshape1")
+
 add_executable(app
-    "${CMAKE_SOURCE_DIR}/Source/main.cpp"
+    "${ProjectPath}/main.cpp"
 )
 
 # Enzyme 无法区分 MSVC 二级 Debug STL 生成的已检查迭代器失败路径。
@@ -26,16 +29,15 @@ set(ENZYME_APP_COMPILE_OPTIONS
 )
 
 add_enzyme_object(loss_gradient
-    "${CMAKE_SOURCE_DIR}/Source/loss.cpp"
-    DEPENDS "${CMAKE_SOURCE_DIR}/Source/loss.h"
-    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/Source"
+    "${ProjectPath}/loss.cpp"
+    DEPENDS "${ProjectPath}loss.h"
+    INCLUDE_DIRECTORIES "${ProjectPath}"
     COMPILE_OPTIONS ${ENZYME_APP_COMPILE_OPTIONS}
 )
 
 add_dependencies(app loss_gradient)
 
 target_link_libraries(app PRIVATE "${loss_gradient_OBJECT}")
-
 target_link_libraries(app PRIVATE
     user32
     gdi32
