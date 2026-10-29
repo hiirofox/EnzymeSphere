@@ -153,7 +153,7 @@ namespace sm
 		std::array<float, NumOutParams> out;
 		void Process(float* pin, float* pout)
 		{
-			std::copy_n(pin, NumInParams, in.begin());
+			for (int i = 0; i < NumInParams; ++i)in[i] = pin[i];
 
 			mxv<NumInParams, NumHidParams>(pi, in, state[0]);
 			ea<NumHidParams>(state[0], bias[0]);
@@ -169,7 +169,7 @@ namespace sm
 			ea<NumOutParams>(out, biasout);
 			nl<NumOutParams>(out);
 
-			std::copy_n(out.begin(), NumOutParams, pout);
+			for (int i = 0; i < NumOutParams; ++i)pout[i] = out[i];
 		}
 	};
 
@@ -248,13 +248,23 @@ namespace sm
 
 		std::mt19937 rng{ std::random_device{}() };
 		std::uniform_real_distribution<float> dist{ -1., 1. };
+		constexpr static int NumRands = 4096;
+		float randn[NumRands];
+		int pos = 0;
+		void UpdateRand()
+		{
+			pos = 0;
+			for (int i = 0; i < NumRands; ++i)
+				randn[i] = dist(rng);
+		}
 		float randf()
 		{
-			return dist(rng);
+			float v = randn[pos++];
+			return v;
 		}
 
-		constexpr static int NumBatchesSmoooth = 10;
-		constexpr static int NumBatchesRand = 10;
+		constexpr static int NumBatchesSmoooth = 50;
+		constexpr static int NumBatchesRand = 50;
 
 		constexpr static int BatchSize = 2048;
 		float tre1[BatchSize];
@@ -269,7 +279,7 @@ namespace sm
 		float count[BatchSize / 2];
 		float Loss()
 		{
-			float totsmoothloss = 0;
+			double totsmoothloss = 0;
 			//邻域内采样
 			for (int n = 0; n < NumBatchesSmoooth; ++n)
 			{
@@ -288,16 +298,22 @@ namespace sm
 				LatentSample(lx + epsx, ly + epsx);
 				Reset(time);
 				fm.ProcessBlock(tre3, BatchSize);
+				for (int i = 0; i < BatchSize; ++i)
+				{
+					tim1[i] = 0;
+					tim2[i] = 0;
+					tim3[i] = 0;
+				}
 				FFT(tre1, tim1, BatchSize, false);
 				FFT(tre2, tim2, BatchSize, false);
 				FFT(tre3, tim3, BatchSize, false);
-				float smoothloss = 0.;
+				double smoothloss = 0.;
 				for (int i = 0; i < BatchSize / 2; ++i)
 				{
 					float mag1 = std::sqrtf(tre1[i] * tre1[i] + tim1[i] * tim1[i]);
 					float mag2 = std::sqrtf(tre2[i] * tre2[i] + tim2[i] * tim2[i]);
 					float mag3 = std::sqrtf(tre3[i] * tre3[i] + tim3[i] * tim3[i]);
-					float d = (mag1 + mag3 - mag2 * 2.) / 0.0001;
+					float d = (mag1 + mag3 - mag2 * 2.);
 					smoothloss += d * d;
 				}
 				smoothloss /= BatchSize / 2;
@@ -305,7 +321,7 @@ namespace sm
 			}
 			totsmoothloss /= NumBatchesSmoooth;
 			//随机采样
-			float totvar = 0.;
+			double totvar = 0.;
 			for (int i = 0; i < BatchSize / 2; ++i)
 			{
 				mean[i] = 0.;
@@ -317,6 +333,10 @@ namespace sm
 				LatentSample(randf(), randf());
 				Reset(randf() * 1000.);
 				fm.ProcessBlock(tre1, BatchSize);
+				for (int i = 0; i < BatchSize; ++i)
+				{
+					tim1[i] = 0;
+				}
 				FFT(tre1, tim1, BatchSize, false);
 				for (int i = 0; i < BatchSize / 2; ++i)
 				{
@@ -329,12 +349,12 @@ namespace sm
 			}
 			for (int i = 0; i < BatchSize / 2; ++i)
 			{
-				float var = M2[i] / count[i];
+				double var = M2[i] / count[i];
 				totvar += var;
 			}
 			totvar /= BatchSize / 2;
 
-			return totsmoothloss + totvar;
+			return log(totsmoothloss + 1.) / 7. + log(1000. / (1. + totvar) + 1.);
 		}
 	};
 }

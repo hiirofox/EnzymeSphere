@@ -17,6 +17,8 @@ void loss(float* params, float* lossOut, int numParams)
 
 float gradient(const float* params, float* grad, int numParams)
 {
+	syn.UpdateRand();
+
 	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
 	float lossOut, dLoss = 1.;
 	__enzyme_autodiff(

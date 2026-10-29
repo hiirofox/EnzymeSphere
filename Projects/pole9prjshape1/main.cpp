@@ -3,11 +3,35 @@
 #include "sm.h"
 #include "optimizer.h"
 
-AdamW<float> opt{ .1, .01, .9, .999 };
+AdamW<float> opt{ .001, .01, .9, .999 };
 constexpr static int NumParams = sm::SynthModel::GetNumParams();
 float params[NumParams];
 float grads[NumParams];
-sm::SynthModel syn;
+sm::SynthModel syn1;
+
+void LoadCheckpoint()
+{
+	FILE* pf = fopen("checkpoint.txt", "r");
+	if (!pf)
+	{
+		printf("!!!!!!!!\n");
+		exit(0);
+	}
+	for (int i = 0; i < NumParams; ++i)
+	{
+		fscanf(pf, "%f, ", &params[i]);
+	}
+	fclose(pf);
+}
+void SaveCheckpoint()
+{
+	FILE* pf = fopen("checkpoint.txt", "w");
+	for (int i = 0; i < NumParams; ++i)
+	{
+		fprintf(pf, "%.8f, ", params[i]);
+	}
+	fclose(pf);
+}
 
 int main()
 {
@@ -15,14 +39,19 @@ int main()
 	if (!canvas.Create(800, 600)) return 1;
 	HWND hwnd = canvas.GetHWND();
 
-	syn.InitModel(params);
+	LoadCheckpoint();
+
+	//syn1.InitModel(params);
 	for (int iter = 0;; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams);
 		opt.Update(params, grads, NumParams, loss);
-		printf("iter:%d loss=%.5f\n", i, loss);
+		printf("iter:%d loss=%.5f\n", iter, loss);
+		if (iter % 200 == 0)
+		{
+			SaveCheckpoint();
+		}
 	}
-
 
 	for (;;)std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 }

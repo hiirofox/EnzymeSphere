@@ -37,9 +37,11 @@ public:
 			params[i] = (1. - lr * lambda) * params[i] - lr * mhat / (sqrt(vhat) + 1.e-8);
 		}
 
+		/*
 		//adaptive loss
 		if (loss < lastloss)lr *= 1.0001;
 		else lr *= 0.9;
 		lastloss = loss;
+		*/
 	}
 };

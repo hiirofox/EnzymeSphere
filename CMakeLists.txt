@@ -30,7 +30,7 @@ set(ENZYME_APP_COMPILE_OPTIONS
 
 add_enzyme_object(loss_gradient
     "${ProjectPath}/loss.cpp"
-    DEPENDS "${ProjectPath}loss.h"
+    DEPENDS "${ProjectPath}/loss.h"
     INCLUDE_DIRECTORIES "${ProjectPath}"
     COMPILE_OPTIONS ${ENZYME_APP_COMPILE_OPTIONS}
 )
