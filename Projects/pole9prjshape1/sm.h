@@ -69,29 +69,20 @@ namespace sm
 		}
 		void InitParams()
 		{
-			static std::mt19937 rng{ std::random_device{}() };
-			auto init2D = [](auto& mat, float limit)
+			static std::mt19937 gen(std::random_device{}());
+			auto init = [&](auto& mat, int fanIn, int fanOut)
 				{
+					float limit = std::sqrt(6.0f / (fanIn + fanOut));
 					std::uniform_real_distribution<float> dist(-limit, limit);
 					for (auto& row : mat)
-						for (auto& v : row)
-							v = dist(rng);
+						for (auto& v : row) v = dist(gen);
 				};
-			// 输入层：2 -> 50
-			const float limPi = std::sqrt(6.0f / (NumInParams + NumHidParams));
-			init2D(pi, limPi);
-			// 隐藏层：50 -> 50
-			const float limPh = std::sqrt(6.0f / (NumHidParams + NumHidParams));
-			for (auto& layer : ph)init2D(layer, limPh);
-			// 输出层：50 -> 15
-			const float limPo = std::sqrt(6.0f / (NumHidParams + NumOutParams));
-			init2D(po, limPo);
-			// 偏置初始化为 0
-			for (auto& row : bias)row.fill(0.0f);
-			for (auto& v : biasout)v = 0.0f;
-			// 残差系数初始化为 1
-			for (auto& row : res)row.fill(0.0f);
-
+			init(pi, NumInParams, NumHidParams);
+			for (auto& layer : ph) init(layer, NumHidParams, NumHidParams);
+			init(po, NumHidParams, NumOutParams);
+			for (auto& row : bias) row.fill(0.001f);
+			biasout.fill(0.001f);
+			for (auto& row : res) row.fill(1.0f);
 		}
 		void Params2Vec(float* out)
 		{
@@ -326,6 +317,7 @@ namespace sm
 			}
 			totsmoothloss /= NumBatchesSmoooth;
 			//随机采样
+			/*
 			double totvar = 0.;
 			for (int i = 0; i < BatchSize / 2; ++i)
 			{
@@ -360,9 +352,40 @@ namespace sm
 				totvar += var;
 			}
 			totvar /= BatchSize / 2;
-
+			*/
+			double totvar = 0;
+			for (int n = 0; n < NumBatchesRand; ++n)
+			{
+				LatentSample(randf(), randf());
+				Reset(randf() * 1000.);
+				fm.ProcessBlock(tre1, BatchSize);
+				for (int i = 0; i < BatchSize; ++i)
+				{
+					float window = 0.5 - 0.5 * cosf((float)i / BatchSize * 2. * 3.1415926535);
+					tre1[i] *= window;
+					tim1[i] = 0;
+				}
+				FFT(tre1, tim1, BatchSize, false);
+				float magavg = 0;
+				for (int i = 0; i < BatchSize / 2; ++i)
+				{
+					float mag1 = std::sqrtf(tre1[i] * tre1[i] + tim1[i] * tim1[i]);
+					magavg += mag1;
+					tre1[i] = mag1;
+				}
+				magavg /= BatchSize / 2;
+				double sumvar = 0.;
+				for (int i = 0; i < BatchSize / 2; ++i)
+				{
+					float v = magavg - tre1[i];
+					sumvar += v * v;
+				}
+				sumvar /= BatchSize / 2;
+				totvar += sumvar;
+			}
+			totvar /= NumBatchesRand;
 			//double loss1 = log(totsmoothloss + 1.) / 7. + log(1000. / (1. + totvar) + 1.);
-			double loss2 = totsmoothloss / 40. + 100. / (1. + totvar);// 
+			double loss2 = totsmoothloss / 40 + 2. / (0.001 + totvar);//.
 			return loss2 * 100.;
 		}
 	};

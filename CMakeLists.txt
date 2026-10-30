@@ -7,10 +7,39 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 project(EnzymeSphere LANGUAGES CXX)
 
-add_subdirectory(tools/ClangEnzyme)
+set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
+set(EXTERNAL_INCLUDE_DIRS
+    "${EXTERNAL_DIR}/eigen"
+    "${EXTERNAL_DIR}/armadillo-code/include"
+    "${EXTERNAL_DIR}/ensmallen/include"
+)
+# 使用 Armadillo 自带的 Windows x64 OpenBLAS。
+set(OPENBLAS_DIR
+    "${EXTERNAL_DIR}/armadillo-code/examples/lib_win64"
+)
+add_library(OpenBLAS::OpenBLAS SHARED IMPORTED)
+set_target_properties(OpenBLAS::OpenBLAS PROPERTIES
+    IMPORTED_IMPLIB "${OPENBLAS_DIR}/libopenblas.lib"
+    IMPORTED_LOCATION "${OPENBLAS_DIR}/libopenblas.dll"
+)
+# 统一管理三个库的使用要求。
+add_library(project_external INTERFACE)
+target_include_directories(project_external SYSTEM INTERFACE
+    ${EXTERNAL_INCLUDE_DIRS}
+)
+target_compile_features(project_external INTERFACE cxx_std_17)
+# 直接调用 OpenBLAS，不使用 Armadillo wrapper 库。
+target_compile_definitions(project_external INTERFACE
+    ARMA_DONT_USE_WRAPPER
+)
+target_link_libraries(project_external INTERFACE
+    OpenBLAS::OpenBLAS
+)
 
+
+add_subdirectory(tools/ClangEnzyme)
 #设置项目路径
-set(ProjectPath "${CMAKE_SOURCE_DIR}/Projects/pole9prjshape1")
+set(ProjectPath "${CMAKE_SOURCE_DIR}/Projects/nlmodeling")
 
 add_executable(app
     "${ProjectPath}/main.cpp"
@@ -38,6 +67,7 @@ add_enzyme_object(loss_gradient
 add_dependencies(app loss_gradient)
 
 target_link_libraries(app PRIVATE "${loss_gradient_OBJECT}")
+target_link_libraries(app PRIVATE project_external)
 target_link_libraries(app PRIVATE
     user32
     gdi32
