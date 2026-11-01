@@ -8,7 +8,7 @@
 #include "ui.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
+AdamW<float> opt(0.01, 0.01, 0.9, 0.999);
 WavReader wr;
 
 int numSamples;
