@@ -8,7 +8,7 @@
 #include "ui.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-AdamW<float> opt(0.0001, 0.01, 0.1, 0.1);
+AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
 WavReader wr;
 
 int numSamples;
@@ -38,14 +38,49 @@ int LoadCheckpoint()
 	fclose(pf);
 	return 1;
 }
+// maskId：-1=全部，1=hammer，2=disperser，3=bridgeMatrix，4=board
+// 其他值：全部梯度清零。
+inline void MaskGradients(float* grads, int maskId)
+{
+	if (!grads || maskId == -1) return;
 
+	constexpr int NumStrings = PianoDWG::PianoWaveguide<float>::NumStrings;
+	constexpr int GroupSizes[] = {
+		PianoDWG::HammerModelStatic<float>::NumParams,
+		PianoDWG::LatticeAPF<float, 4>::NumParams,
+		NumStrings * PianoDWG::LatticeIIR<float, 2>::NumParams,
+		PianoDWG::LatticeIIR<float, 2>::NumParams
+	};
+
+	int offset = 0;
+	for (int string = 0; string < NumStrings; ++string)
+	{
+		for (int group = 0; group < 4; ++group)
+		{
+			const int count = GroupSizes[group];
+			if (maskId != group + 1)
+			{
+				for (int i = 0; i < count; ++i)
+					grads[offset + i] = 0.0f;
+			}
+			offset += count;
+		}
+	}
+}
+
+TrainStateUI tui;
 int main()
 {
+	tui.Create();
+
 	wr.OpenWAV(root + "C4.wav");
 	numSamples = (int)wr.GetNumSamples();
 	target.resize(numSamples);
 	wr.ReadBlock(target.data(), target.data(), numSamples);
 	printf("numSamples=%d\n", numSamples);
+	if (numSamples <= 0) return 1;
+
+	tui.UpdateTarget(target.data(), numSamples);
 
 	if (!LoadCheckpoint())
 		instance1.InitParams(params);
@@ -53,6 +88,8 @@ int main()
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, target.data(), numSamples);
+		MaskGradients(grads, 2);
+
 		if (loss < bestloss)
 		{
 			bestloss = loss;
@@ -63,6 +100,10 @@ int main()
 		{
 			haveBest = 0;
 			SaveCheckpoint();
+		}
+		if (iter % 5 == 0)
+		{
+			tui.UpdateAndRepaint(params, NumParams);
 		}
 		float lr = opt.Update(params, grads, NumParams, loss);
 		float losg = 0.;

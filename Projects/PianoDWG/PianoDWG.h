@@ -31,7 +31,7 @@ namespace PianoDWG
 		constexpr static int NumParams = NumLayers;
 		void InitParams(Sample* out) //直通(延迟NumLayers个采样)
 		{
-			for (int i = 0; i < NumLayers; ++i)k[i] = 0.;
+			for (int i = 0; i < NumLayers; ++i)k[i] = rand() / RAND_MAX * (rand() % 2 ? 1 : -1);
 			if (out) ParamsToVec(out);
 		}
 		void VecToParams(Sample* in)
@@ -402,7 +402,7 @@ namespace PianoDWG
 		//HammerModel<Sample> hammer[NumStrings];//琴槌模型
 		HammerModelStatic<Sample> hammer[NumStrings];//琴槌模型
 		//DelayLine<Sample, (int)SampleRate> delay[NumStrings];//波导延迟
-		DelayLineStatic<Sample, (int)(SampleRate / 261.43 - 2.)> delay[NumStrings];//波导延迟
+		DelayLineStatic<Sample, (int)(SampleRate / 261.43 * 2. - 2.)> delay[NumStrings];//波导延迟
 		LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
 		LatticeIIR<Sample, 2> bridgeMatrix[NumStrings][NumStrings];//琴桥耦合响应
 		LatticeIIR<Sample, 2> board[NumStrings];//琴板响应
@@ -656,8 +656,9 @@ namespace PianoDWG
 				data->audio[i] = instance->ProcessSample();
 
 			// Calculate multi-resolution STFT loss.
-			auto CalcScale = [&](int N, int Hop) -> float
+			auto CalcScale = [&](int N) -> float
 				{
+					int Hop = N / 2;
 					float* yr = data->yr.data();
 					float* yi = data->yi.data();
 					float* tr = data->tr.data();
@@ -699,7 +700,7 @@ namespace PianoDWG
 							float tm = sqrtf(tr[k] * tr[k] + ti[k] * ti[k] + MagEps * MagEps);
 
 							float d = ym - tm;
-							float w = (k == 0 || k == N / 2) ? 1.0f : 2.0f;
+							float w = 10. / (float)(k + 1.);
 
 							diffSq += w * d * d;
 							targetSq += w * tm * tm;
@@ -717,9 +718,9 @@ namespace PianoDWG
 					return sc + mag;
 				};
 
-			float l0 = CalcScale(512, 128);
-			float l1 = CalcScale(2048, 512);
-			float l2 = CalcScale(8192, 2048);
+			float l0 = CalcScale(64);
+			float l1 = CalcScale(512);
+			float l2 = CalcScale(1024);
 
 			return (l0 + l1 + l2) / 3.0f;
 		}
