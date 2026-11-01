@@ -1,5 +1,5 @@
 #pragma once
-
+#include <algorithm>
 #include <cmath>
 #include <tuple>
 #include <utility>
@@ -53,6 +53,56 @@ namespace PianoDWG
 		inline Sample ProcessSample(Sample x)
 		{
 			return ProcessLattice<0>(x);
+		}
+	};
+	template <typename Sample, int NumLayers>
+	class CascadeAPF
+	{
+	private:
+		Sample z[NumLayers], k[NumLayers];
+
+		inline Sample ProcessLattice(Sample x)
+		{
+			for (int layer = 0; layer < NumLayers; ++layer)
+			{
+				Sample z1 = z[layer];
+				Sample a = x - z1 * k[layer];
+				z[layer] = a;
+				x = z1 + a * k[layer];
+			}
+			return x;
+		}
+	public:
+		constexpr static int NumParams = NumLayers;
+		void InitParams(Sample* out) //直通(延迟NumLayers个采样)
+		{
+			for (int i = 0; i < NumLayers; ++i)k[i] = -0.744342145;
+			if (out) ParamsToVec(out);
+		}
+		void VecToParams(Sample* in)
+		{
+			int pos = 0;
+			for (int i = 0; i < NumLayers; ++i)
+			{//k[i] = tanh(in[pos++]);
+				float v = in[pos++];
+				if (v < -1.)v = -1.;
+				if (v > 1.)v = 1.;
+				k[i] = v;
+			}
+		}
+		void ParamsToVec(Sample* out)
+		{
+			int pos = 0;
+			for (int i = 0; i < NumLayers; ++i)
+				out[pos++] = atanh(k[i]);
+		}
+		void Reset()
+		{
+			for (int i = 0; i < NumLayers; ++i)z[i] = 0.;
+		}
+		inline Sample ProcessSample(Sample x)
+		{
+			return ProcessLattice(x);
 		}
 	};
 	template <typename Sample, int NumLayers>
@@ -280,7 +330,7 @@ namespace PianoDWG
 		void InitParams(Sample* out)
 		{
 			for (int i = 0; i < TableSize; ++i) hammer[i] = 0.;
-			hammer[0] = 1.;
+			hammer[0] = .1;
 			nlcells.InitParams(out + TableSize);
 			if (out) ParamsToVec(out);
 		}
@@ -402,8 +452,9 @@ namespace PianoDWG
 		//HammerModel<Sample> hammer[NumStrings];//琴槌模型
 		HammerModelStatic<Sample> hammer[NumStrings];//琴槌模型
 		//DelayLine<Sample, (int)SampleRate> delay[NumStrings];//波导延迟
-		DelayLineStatic<Sample, (int)(SampleRate / 261.43 * 2. - 2.)> delay[NumStrings];//波导延迟
-		LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
+		DelayLineStatic<Sample, 331> delay[NumStrings];//波导延迟
+		//LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
+		CascadeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
 		LatticeIIR<Sample, 2> bridgeMatrix[NumStrings][NumStrings];//琴桥耦合响应
 		LatticeIIR<Sample, 2> board[NumStrings];//琴板响应
 
@@ -436,11 +487,13 @@ namespace PianoDWG
 		}
 		void VecToParams(Sample* in)
 		{
+			float dispersek[] = { -0.812760545, -0.793780838, -0.793780826, -0.770383545 };
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				hammer[i].VecToParams(in);
 				in += HammerModel<Sample>::NumParams;
-				disperser[i].VecToParams(in);
+				//disperser[i].VecToParams(in);
+				disperser[i].VecToParams(dispersek);
 				in += LatticeAPF<Sample, 4>::NumParams;
 				for (int j = 0; j < NumStrings; ++j)
 				{
@@ -694,13 +747,13 @@ namespace PianoDWG
 						FFT(yr, yi, N, 0);
 						FFT(tr, ti, N, 0);
 
-						for (int k = 0; k <= N / 2; ++k)
+						for (int k = 1; k <= N / 2; ++k)
 						{
 							float ym = sqrtf(yr[k] * yr[k] + yi[k] * yi[k] + MagEps * MagEps);
 							float tm = sqrtf(tr[k] * tr[k] + ti[k] * ti[k] + MagEps * MagEps);
 
 							float d = ym - tm;
-							float w = 10. / (float)(k + 1.);
+							float w = 1.;
 
 							diffSq += w * d * d;
 							targetSq += w * tm * tm;
@@ -718,11 +771,11 @@ namespace PianoDWG
 					return sc + mag;
 				};
 
-			float l0 = CalcScale(64);
-			float l1 = CalcScale(512);
-			float l2 = CalcScale(1024);
+			float l0 = CalcScale(256);
+			float l1 = CalcScale(1024);
+			float l2 = CalcScale(4096);
 
-			return (l0 + l1 + l2) / 3.0f;
+			return (l0 + l1 + l2) / 3.0f * 100.0;
 		}
 	}
 }

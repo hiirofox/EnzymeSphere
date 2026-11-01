@@ -45,13 +45,15 @@ public:
 
 	~TrainStateUI() override { Stop(); }
 
-	void UpdateTarget(float* samples, int count)
+	// Copy estimated frequencies; the caller's buffer need not outlive this call.
+	void UpdateTarget(float* samples, int count, const float* dispFreqs = nullptr, int numDispFreqs = 0)
 	{
 		{
 			std::lock_guard<std::mutex> lock(updateMutex_);
 			if (!samples || count <= 0)
 			{
 				targetSpectrum_.reset();
+				dispersionFrequencies_.reset();
 				numSamples_ = fftSize_ = 0;
 				std::atomic_store(&display_, std::shared_ptr<const SpectrumFrame>{});
 			}
@@ -67,11 +69,25 @@ public:
 					n *= 2;
 				}
 				auto spectrum = std::make_shared<std::vector<float>>(ComputeSpectrum(samples, count, n));
+				auto frequencies = std::make_shared<std::vector<float>>();
+				if (dispFreqs && numDispFreqs > 0)
+				{
+					frequencies->reserve(numDispFreqs);
+					for (int i = 0; i < numDispFreqs; ++i)
+					{
+						const float hz = dispFreqs[i];
+						if (std::isfinite(hz) && hz > 0.0f &&
+							hz < PianoDWG::PianoWaveguide<float>::SampleRate * 0.5f)
+							frequencies->push_back(hz);
+					}
+				}
 				targetSpectrum_ = spectrum;
+				dispersionFrequencies_ = frequencies;
 				numSamples_ = count;
 				fftSize_ = n;
 				auto frame = std::make_shared<SpectrumFrame>();
 				frame->target = targetSpectrum_;
+				frame->dispersionFrequencies = dispersionFrequencies_;
 				frame->fftSize = fftSize_;
 				frame->numSamples = numSamples_;
 				Publish(frame);
@@ -101,6 +117,7 @@ public:
 
 			auto frame = std::make_shared<SpectrumFrame>();
 			frame->target = targetSpectrum_;
+			frame->dispersionFrequencies = dispersionFrequencies_;
 			frame->piano = ComputeSpectrum(audio_.data(), numSamples_, fftSize_);
 			frame->fftSize = fftSize_;
 			frame->numSamples = numSamples_;
@@ -117,10 +134,11 @@ protected:
 		const auto size = g.GetSize();
 		if (size.width < 200.0f || size.height < 150.0f) return;
 
-		Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> black, red, grid;
+		Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> black, red, grid, lightBlue;
 		if (FAILED(g.CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f), black.GetAddressOf())) ||
 			FAILED(g.CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.0f, 0.0f), red.GetAddressOf())) ||
-			FAILED(g.CreateSolidColorBrush(D2D1::ColorF(0.86f, 0.86f, 0.86f), grid.GetAddressOf())))
+			FAILED(g.CreateSolidColorBrush(D2D1::ColorF(0.86f, 0.86f, 0.86f), grid.GetAddressOf())) ||
+			FAILED(g.CreateSolidColorBrush(D2D1::ColorF(0.55f, 0.78f, 1.0f, 0.8f), lightBlue.GetAddressOf())))
 			return;
 
 		const auto plot = D2D1::RectF(62.0f, 62.0f, size.width - 24.0f, size.height - 50.0f);
@@ -153,7 +171,9 @@ protected:
 		g.DrawLine(D2D1::Point2F(plot.left, 21.0f), D2D1::Point2F(plot.left + 22.0f, 21.0f), black.Get(), 2.0f);
 		DrawLabel(g, L"Target", D2D1::RectF(plot.left + 28.0f, 10.0f, plot.left + 95.0f, 34.0f), black.Get());
 		g.DrawLine(D2D1::Point2F(plot.left + 110.0f, 21.0f), D2D1::Point2F(plot.left + 132.0f, 21.0f), red.Get(), 2.0f);
-		DrawLabel(g, L"Piano waveguide", D2D1::RectF(plot.left + 138.0f, 10.0f, size.width, 34.0f), red.Get());
+		DrawLabel(g, L"Piano waveguide", D2D1::RectF(plot.left + 138.0f, 10.0f, plot.left + 300.0f, 34.0f), red.Get());
+		g.DrawLine(D2D1::Point2F(plot.left + 320.0f, 13.0f), D2D1::Point2F(plot.left + 320.0f, 29.0f), lightBlue.Get(), 1.5f);
+		DrawLabel(g, L"Estimated partials", D2D1::RectF(plot.left + 330.0f, 10.0f, size.width, 34.0f), black.Get());
 		if (!frame)
 		{
 			DrawLabel(g, L"Waiting for target...", plot, black.Get());
@@ -165,6 +185,17 @@ protected:
 		DrawLabel(g, info, D2D1::RectF(plot.left, 35.0f, size.width, 60.0f), black.Get());
 
 		g.PushAxisAlignedClip(plot, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+		// Model-estimated resonances behind both measured spectrum curves.
+		if (frame->dispersionFrequencies)
+		{
+			for (float hz : *frame->dispersionFrequencies)
+			{
+				if (hz < FrequencyMinHz || hz > FrequencyMaxHz) continue;
+				const float x = plot.left + (hz - FrequencyMinHz) /
+					(FrequencyMaxHz - FrequencyMinHz) * width;
+				g.DrawLine(D2D1::Point2F(x, plot.top), D2D1::Point2F(x, plot.bottom), lightBlue.Get(), 1.0f);
+			}
+		}
 		// Complete target first, then overlay the complete model spectrum.
 		DrawSpectrum(g, *frame->target, frame->fftSize, plot, black.Get());
 		DrawSpectrum(g, frame->piano, frame->fftSize, plot, red.Get());
@@ -175,6 +206,7 @@ private:
 	struct SpectrumFrame
 	{
 		std::shared_ptr<const std::vector<float>> target;
+		std::shared_ptr<const std::vector<float>> dispersionFrequencies;
 		std::vector<float> piano;
 		int fftSize = 0;
 		int numSamples = 0;
@@ -258,6 +290,7 @@ private:
 	std::mutex updateMutex_;
 	std::vector<float> params_, audio_;
 	std::shared_ptr<const std::vector<float>> targetSpectrum_;
+	std::shared_ptr<const std::vector<float>> dispersionFrequencies_;
 	std::shared_ptr<const SpectrumFrame> display_;
 	int numSamples_ = 0;
 	int fftSize_ = 0;
