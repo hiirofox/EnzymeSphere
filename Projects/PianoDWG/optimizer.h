@@ -19,7 +19,7 @@ public:
 		lastloss = 0.;
 		smoothdloss = 0.;
 	}
-	void Update(Sample* params, Sample* grads, int numParams, Sample loss)
+	Sample Update(Sample* params, Sample* grads, int numParams, Sample loss)
 	{
 		if (m.size() < numParams || v.size() < numParams)
 		{
@@ -37,11 +37,11 @@ public:
 			params[i] = (1. - lr * lambda) * params[i] - lr * mhat / (sqrt(vhat) + 1.e-8);
 		}
 
-		/*
+
 		//adaptive loss
-		if (loss < lastloss)lr *= 1.0001;
-		else lr *= 0.9;
+		if (loss < lastloss)lr *= 1.001;
+		else lr *= 0.99;
 		lastloss = loss;
-		*/
+		return lr;
 	}
 };

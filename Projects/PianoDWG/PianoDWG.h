@@ -3,6 +3,9 @@
 #include <cmath>
 #include <tuple>
 #include <utility>
+#include <limits>
+#include <vector>
+#include <array>
 
 namespace PianoDWG
 {
@@ -427,7 +430,7 @@ namespace PianoDWG
 					bridgeMatrix[i][j].InitParams(out);
 					out += LatticeIIR<Sample, 2>::NumParams;
 				}
-				board[i].VecToParams(out);
+				board[i].InitParams(out);
 				out += LatticeIIR<Sample, 2>::NumParams;
 			}
 		}
@@ -527,7 +530,7 @@ namespace PianoDWG
 		}
 	};
 
-	namespace Train
+	namespace TrainSimple
 	{
 		inline void FFT(float* re, float* im, int N, int inv)
 		{
@@ -579,6 +582,146 @@ namespace PianoDWG
 				mse += e * e * g;
 			}
 			return (float)mse;
+		}
+	}
+
+	namespace Train
+	{
+		inline void FFT(float* re, float* im, int N, int inv)
+		{
+			const float PI = 3.14159265358979323846f;
+			for (int i = 1, j = 0; i < N; i++) {
+				int b = N >> 1;
+				for (; j & b; b >>= 1) j ^= b;
+				j ^= b;
+				if (i < j) {
+					float t = re[i]; re[i] = re[j]; re[j] = t;
+					t = im[i]; im[i] = im[j]; im[j] = t;
+				}
+			}
+			for (int len = 2; len <= N; len <<= 1) {
+				float a = (inv ? 2.0f : -2.0f) * PI / len;
+				float cr = cosf(a), ci = sinf(a);
+				for (int i = 0; i < N; i += len) {
+					float wr = 1, wi = 0;
+					for (int j = 0; j < len / 2; j++) {
+						int u = i + j, v = u + len / 2;
+						float tr = wr * re[v] - wi * im[v];
+						float ti = wr * im[v] + wi * re[v];
+						re[v] = re[u] - tr; im[v] = im[u] - ti;
+						re[u] += tr; im[u] += ti;
+						float t = wr * cr - wi * ci;
+						wi = wr * ci + wi * cr;
+						wr = t;
+					}
+				}
+			}
+			if (inv)
+				for (int i = 0; i < N; i++) {
+					re[i] /= N;
+					im[i] /= N;
+				}
+		}
+
+		struct LossSTFTData
+		{
+			constexpr static int MaxFFTSize = 8192;
+			std::array<float, 10000000> audio{};
+			std::array<float, MaxFFTSize> yr{};
+			std::array<float, MaxFFTSize> yi{};
+			std::array<float, MaxFFTSize> tr{};
+			std::array<float, MaxFFTSize> ti{};
+			std::array<float, MaxFFTSize> window{};
+		};
+
+		inline float LossSTFT(float* params, int numParams, float* target, int numSamples, PianoWaveguide<float>* instance, LossSTFTData* data)
+		{
+			(void)numParams;
+
+			if (numSamples <= 0) return 0.0f;
+			if (!data || !target || !instance) return std::numeric_limits<float>::quiet_NaN();
+
+			constexpr int MaxFFTSize = 8192;
+			constexpr float PI = 3.14159265358979323846f;
+			constexpr float MagEps = 1e-7f;
+			constexpr float NormEps = 1e-7f;
+			constexpr float AbsEps = 1e-4f;
+
+			// Generate audio.
+			instance->VecToParams(params);
+			instance->Reset();
+			instance->NoteOn(1.0f);
+
+			for (int i = 0; i < numSamples; ++i)
+				data->audio[i] = instance->ProcessSample();
+
+			// Calculate multi-resolution STFT loss.
+			auto CalcScale = [&](int N, int Hop) -> float
+				{
+					float* yr = data->yr.data();
+					float* yi = data->yi.data();
+					float* tr = data->tr.data();
+					float* ti = data->ti.data();
+					float* window = data->window.data();
+
+					for (int i = 0; i < N; ++i)
+						window[i] = 0.5f - 0.5f * cosf(2.0f * PI * i / N);
+
+					int frameCount = (numSamples + Hop - 1) / Hop;
+
+					float diffSq = 0.0f;
+					float targetSq = 0.0f;
+					float logSum = 0.0f;
+
+					for (int frame = 0; frame < frameCount; ++frame)
+					{
+						int start = frame * Hop - N / 2;
+
+						for (int i = 0; i < N; ++i)
+						{
+							int idx = start + i;
+
+							float x = (idx >= 0 && idx < numSamples) ? data->audio[idx] : 0.0f;
+							float t = (idx >= 0 && idx < numSamples) ? target[idx] : 0.0f;
+
+							yr[i] = x * window[i];
+							yi[i] = 0.0f;
+							tr[i] = t * window[i];
+							ti[i] = 0.0f;
+						}
+
+						FFT(yr, yi, N, 0);
+						FFT(tr, ti, N, 0);
+
+						for (int k = 0; k <= N / 2; ++k)
+						{
+							float ym = sqrtf(yr[k] * yr[k] + yi[k] * yi[k] + MagEps * MagEps);
+							float tm = sqrtf(tr[k] * tr[k] + ti[k] * ti[k] + MagEps * MagEps);
+
+							float d = ym - tm;
+							float w = (k == 0 || k == N / 2) ? 1.0f : 2.0f;
+
+							diffSq += w * d * d;
+							targetSq += w * tm * tm;
+
+							float ld = logf(ym + MagEps) - logf(tm + MagEps);
+							logSum += w * (sqrtf(ld * ld + AbsEps * AbsEps) - AbsEps);
+						}
+					}
+
+					float sc = (sqrtf(diffSq + NormEps * NormEps) - NormEps)
+						/ sqrtf(targetSq + NormEps * NormEps);
+
+					float mag = logSum / (frameCount * N);
+
+					return sc + mag;
+				};
+
+			float l0 = CalcScale(512, 128);
+			float l1 = CalcScale(2048, 512);
+			float l2 = CalcScale(8192, 2048);
+
+			return (l0 + l1 + l2) / 3.0f;
 		}
 	}
 }

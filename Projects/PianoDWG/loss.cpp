@@ -8,9 +8,11 @@ extern "C" {
 }
 
 PianoDWG::PianoWaveguide<float> instance;
+PianoDWG::Train::LossSTFTData batch;
 void loss(float* params, float* lossOut, int numParams, float* target, int numSamples)
 {
-	*lossOut = PianoDWG::Train::LossSimple(params, numParams, target, numSamples, &instance) * 10000.;
+	//*lossOut = PianoDWG::TrainSimple::LossSimple(params, numParams, target, numSamples, &instance) * 10000.;
+	*lossOut = PianoDWG::Train::LossSTFT(params, numParams, target, numSamples, &instance, &batch);
 }
 float gradient(const float* params, float* grad, int numParams, float* target, int numSamples)
 {
