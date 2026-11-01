@@ -31,8 +31,7 @@ namespace PianoDWG
 		constexpr static int NumParams = NumLayers;
 		void InitParams(Sample* out) //直通(延迟NumLayers个采样)
 		{
-			//for (int i = 0; i < NumLayers; ++i)k[i] = rand() / RAND_MAX * (rand() % 2 ? 1 : -1);
-			for (int i = 0; i < NumLayers; ++i)k[i] = 0.1;
+			for (int i = 0; i < NumLayers; ++i)k[i] = rand() / RAND_MAX * (rand() % 2 ? 1 : -1);
 			if (out) ParamsToVec(out);
 		}
 		void VecToParams(Sample* in)
@@ -56,53 +55,6 @@ namespace PianoDWG
 			return ProcessLattice<0>(x);
 		}
 	};
-	template <typename Sample, int NumLayers>
-	class CascadeAPF
-	{
-	private:
-		Sample z[NumLayers], k[NumLayers];
-
-		inline Sample ProcessLattice(Sample x)
-		{
-			for (int layer = 0; layer < NumLayers; ++layer)
-			{
-				Sample z1 = z[layer];
-				Sample a = x - z1 * k[layer];
-				z[layer] = a;
-				x = z1 + a * k[layer];
-			}
-			return x;
-		}
-	public:
-		constexpr static int NumParams = NumLayers;
-		void InitParams(Sample* out) //直通(延迟NumLayers个采样)
-		{
-			//for (int i = 0; i < NumLayers; ++i)k[i] = rand() / RAND_MAX * (rand() % 2 ? 1 : -1);
-			for (int i = 0; i < NumLayers; ++i)k[i] = 0.99;
-			if (out) ParamsToVec(out);
-		}
-		void VecToParams(Sample* in)
-		{
-			int pos = 0;
-			for (int i = 0; i < NumLayers; ++i)
-				k[i] = tanh(in[pos++]);
-		}
-		void ParamsToVec(Sample* out)
-		{
-			int pos = 0;
-			for (int i = 0; i < NumLayers; ++i)
-				out[pos++] = atanh(k[i]);
-		}
-		void Reset()
-		{
-			for (int i = 0; i < NumLayers; ++i)z[i] = 0.;
-		}
-		inline Sample ProcessSample(Sample x)
-		{
-			return ProcessLattice(x);
-		}
-	};
-
 	template <typename Sample, int NumLayers>
 	class LatticeIIR
 	{
@@ -451,8 +403,7 @@ namespace PianoDWG
 		HammerModelStatic<Sample> hammer[NumStrings];//琴槌模型
 		//DelayLine<Sample, (int)SampleRate> delay[NumStrings];//波导延迟
 		DelayLineStatic<Sample, (int)(SampleRate / 261.43 * 2. - 2.)> delay[NumStrings];//波导延迟
-		//LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
-		CascadeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
+		LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
 		LatticeIIR<Sample, 2> bridgeMatrix[NumStrings][NumStrings];//琴桥耦合响应
 		LatticeIIR<Sample, 2> board[NumStrings];//琴板响应
 
@@ -674,7 +625,7 @@ namespace PianoDWG
 
 		struct LossSTFTData
 		{
-			constexpr static int MaxFFTSize = 32768;
+			constexpr static int MaxFFTSize = 8192;
 			std::array<float, 10000000> audio{};
 			std::array<float, MaxFFTSize> yr{};
 			std::array<float, MaxFFTSize> yi{};
@@ -690,7 +641,7 @@ namespace PianoDWG
 			if (numSamples <= 0) return 0.0f;
 			if (!data || !target || !instance) return std::numeric_limits<float>::quiet_NaN();
 
-			constexpr int MaxFFTSize = LossSTFTData::MaxFFTSize;
+			constexpr int MaxFFTSize = 8192;
 			constexpr float PI = 3.14159265358979323846f;
 			constexpr float MagEps = 1e-7f;
 			constexpr float NormEps = 1e-7f;
@@ -701,7 +652,8 @@ namespace PianoDWG
 			instance->Reset();
 			instance->NoteOn(1.0f);
 
-			instance->ProcessBlock(data->audio.data(), numParams);
+			for (int i = 0; i < numSamples; ++i)
+				data->audio[i] = instance->ProcessSample();
 
 			// Calculate multi-resolution STFT loss.
 			auto CalcScale = [&](int N) -> float
@@ -742,13 +694,13 @@ namespace PianoDWG
 						FFT(yr, yi, N, 0);
 						FFT(tr, ti, N, 0);
 
-						for (int k = 1; k <= N / 2; ++k)
+						for (int k = 0; k <= N / 2; ++k)
 						{
 							float ym = sqrtf(yr[k] * yr[k] + yi[k] * yi[k] + MagEps * MagEps);
 							float tm = sqrtf(tr[k] * tr[k] + ti[k] * ti[k] + MagEps * MagEps);
 
 							float d = ym - tm;
-							float w = 1.;
+							float w = 10. / (float)(k + 1.);
 
 							diffSq += w * d * d;
 							targetSq += w * tm * tm;
@@ -766,23 +718,11 @@ namespace PianoDWG
 					return sc + mag;
 				};
 
-
-			double e1 = 0., e2 = 0., eloss = 0., dcl = 0.;
-			for (int i = 0; i < numSamples; ++i)
-			{
-				e1 += data->audio[i] * data->audio[i];
-				e2 += target[i] * target[i];
-				dcl += data->audio[i] / (float)numSamples;
-			}
-			eloss = (e1 - e2) * (e1 - e2) / 1000.;
-			dcl = dcl * dcl;
-
 			float l0 = CalcScale(64);
 			float l1 = CalcScale(512);
 			float l2 = CalcScale(1024);
 
-
-			return dcl + (l0 + l1 + l2) / 3.0f;
+			return (l0 + l1 + l2) / 3.0f;
 		}
 	}
 }

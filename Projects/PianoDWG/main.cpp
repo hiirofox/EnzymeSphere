@@ -8,7 +8,7 @@
 #include "ui.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-AdamW<float> opt(0.0001, 0.01, 0.9, 0.999);
+AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
 WavReader wr;
 
 int numSamples;
@@ -88,7 +88,7 @@ int main()
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, target.data(), numSamples);
-		MaskGradients(grads, -1);
+		MaskGradients(grads, 2);
 
 		if (loss < bestloss)
 		{
