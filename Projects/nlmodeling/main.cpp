@@ -1,3 +1,11 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <array>
+#include <condition_variable>
+#include <cstdio>
+#include <iostream>
+#include <limits>
+#include <mutex>
+#include <thread>
 #define OPTIM_ENABLE_EIGEN_WRAPPERS
 
 #include <future>
@@ -384,7 +392,7 @@ int main()
 
 		if (bestLoss < minloss) okflags[taskid] = 1;
 	}
-done:
+done:;
 
 
 }

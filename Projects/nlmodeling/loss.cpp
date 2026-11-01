@@ -1,9 +1,14 @@
 #include "loss.h"
 
-extern int enzyme_dup;
-extern int enzyme_const;
-template <typename... Args>
-void __enzyme_autodiff(Args...);
+int BatchSampleLen = 65536;
+std::vector<float> testX, targetY;
+float window[WindowSize];
+
+extern "C" {
+    extern int enzyme_dup;
+    extern int enzyme_const;
+    void __enzyme_autodiff(void*, ...);
+}
 
 template<int N>
 void FFT(float* re, float* im, int inv)

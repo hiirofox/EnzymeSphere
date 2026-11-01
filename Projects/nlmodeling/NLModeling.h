@@ -4,6 +4,18 @@
 #include <math.h>
 #include <vector>
 #include <tuple>
+#include <algorithm>
+#include <array>
+#include <random>
+
+namespace NLModelingDetail
+{
+	template<typename T>
+	constexpr const T& Clamp(const T& value, const T& lo, const T& hi)
+	{
+		return value < lo ? lo : (hi < value ? hi : value);
+	}
+}
 
 namespace NLModeling
 {
@@ -793,7 +805,7 @@ namespace NLModelingGRU
 			int p = 0;
 			auto R = [&](float m, float s)
 				{
-					return std::clamp(m + s * nd(rng), m - 2.0f * s, m + 2.0f * s);
+					return NLModelingDetail::Clamp(m + s * nd(rng), m - 2.0f * s, m + 2.0f * s);
 				};
 			auto F = [&](int n, float m, float s)
 				{
@@ -1259,10 +1271,10 @@ namespace NLModelingStateCell
 			int n = 0;
 			for (int i = 0; i < NumLayers; ++i)
 			{
-				out[n++] = std::clamp(vx[i], eps, 1.0f - eps);
-				out[n++] = std::clamp(va[i], eps, 1.0f - eps);
-				out[n++] = std::clamp(vo[i], eps, 1.0f - eps);
-				out[n++] = std::clamp(vabsx[i], eps, 1.0f - eps);
+				out[n++] = NLModelingDetail::Clamp(vx[i], eps, 1.0f - eps);
+				out[n++] = NLModelingDetail::Clamp(va[i], eps, 1.0f - eps);
+				out[n++] = NLModelingDetail::Clamp(vo[i], eps, 1.0f - eps);
+				out[n++] = NLModelingDetail::Clamp(vabsx[i], eps, 1.0f - eps);
 
 				out[n++] = gx[i];
 				out[n++] = ga[i];
@@ -1292,10 +1304,10 @@ namespace NLModelingStateCell
 			int n = 0;
 			for (int i = 0; i < NumLayers; ++i)
 			{
-				vx[i] = std::clamp(in[n++], eps, 1.0f - eps);
-				va[i] = std::clamp(in[n++], eps, 1.0f - eps);
-				vo[i] = std::clamp(in[n++], eps, 1.0f - eps);
-				vabsx[i] = std::clamp(in[n++], eps, 1.0f - eps);
+				vx[i] = NLModelingDetail::Clamp(in[n++], eps, 1.0f - eps);
+				va[i] = NLModelingDetail::Clamp(in[n++], eps, 1.0f - eps);
+				vo[i] = NLModelingDetail::Clamp(in[n++], eps, 1.0f - eps);
+				vabsx[i] = NLModelingDetail::Clamp(in[n++], eps, 1.0f - eps);
 
 				gx[i] = in[n++];
 				ga[i] = in[n++];
@@ -1525,9 +1537,9 @@ namespace NLModelingEnvePass
 			int n = 0;
 			for (int i = 0; i < NumLayers; ++i)
 			{
-				v1[i] = std::clamp(in[n++], 0.0f, 1.0f);
-				v2[i] = std::clamp(in[n++], 0.0f, 1.0f);
-				v3[i] = std::clamp(in[n++], 0.0f, 1.0f);
+				v1[i] = NLModelingDetail::Clamp(in[n++], 0.0f, 1.0f);
+				v2[i] = NLModelingDetail::Clamp(in[n++], 0.0f, 1.0f);
+				v3[i] = NLModelingDetail::Clamp(in[n++], 0.0f, 1.0f);
 
 				g1[i] = in[n++];
 				g2[i] = in[n++];

@@ -1,0 +1,29 @@
+#include "loss.h"
+#include "PianoDWG.h"
+
+extern "C" {
+	extern int enzyme_dup;
+	extern int enzyme_const;
+	void __enzyme_autodiff(void*, ...);
+}
+
+PianoDWG::PianoWaveguide<float> instance;
+void loss(float* params, float* lossOut, int numParams, float* target, int numSamples)
+{
+	*lossOut = PianoDWG::Train::LossSimple(params, numParams, target, numSamples, &instance);
+}
+
+float gradient(const float* params, float* grad, int numParams, float* target, int numSamples)
+{
+	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
+	float lossOut, dLoss = 1.;
+	__enzyme_autodiff(
+		(void*)loss,
+		enzyme_dup, params, grad,
+		enzyme_dup, &lossOut, &dLoss,
+		enzyme_const, numParams,
+		enzyme_const, target,
+		enzyme_const, numSamples
+	);
+	return lossOut;
+}
