@@ -94,7 +94,8 @@ namespace PianoDWG
 		{
 			int pos = 0;
 			for (int i = 0; i < NumLayers; ++i)
-				out[pos++] = atanh(k[i]);
+				//out[pos++] = atanh(k[i]);
+				out[pos++] = k[i];
 		}
 		void Reset()
 		{
@@ -452,9 +453,9 @@ namespace PianoDWG
 		//HammerModel<Sample> hammer[NumStrings];//琴槌模型
 		HammerModelStatic<Sample> hammer[NumStrings];//琴槌模型
 		//DelayLine<Sample, (int)SampleRate> delay[NumStrings];//波导延迟
-		DelayLineStatic<Sample, 331> delay[NumStrings];//波导延迟
-		//LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
-		CascadeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
+		DelayLineStatic<Sample, 325> delay[NumStrings];//波导延迟
+		LatticeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
+		//CascadeAPF<Sample, 4> disperser[NumStrings];//琴弦色散
 		LatticeIIR<Sample, 2> bridgeMatrix[NumStrings][NumStrings];//琴桥耦合响应
 		LatticeIIR<Sample, 2> board[NumStrings];//琴板响应
 
@@ -487,7 +488,8 @@ namespace PianoDWG
 		}
 		void VecToParams(Sample* in)
 		{
-			float dispersek[] = { -0.812760545, -0.793780838, -0.793780826, -0.770383545 };
+			float k1 = 0.877081952428, k2 = -0.983032106409, k3 = 0.990713663258, k4 = -0.995647276579;
+			float dispersek[] = { k1,k2,k3,k4 };
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				hammer[i].VecToParams(in);

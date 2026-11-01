@@ -69,7 +69,7 @@ inline void MaskGradients(float* grads, int maskId)
 	}
 }
 
-constexpr int DispFreqCapacity = 200;
+constexpr int DispFreqCapacity = 400;
 int NumDispFreqs = DispFreqCapacity;
 float dispFreqs[DispFreqCapacity]{};
 TrainStateUI tui;
@@ -93,7 +93,7 @@ int main()
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, target.data(), numSamples);
-		MaskGradients(grads, -1);
+		MaskGradients(grads, 2);
 
 		if (loss < bestloss)
 		{

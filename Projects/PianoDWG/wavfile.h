@@ -148,7 +148,8 @@ public:
 				if (!ReadFrame(l, r))
 					break;
 
-				bufl[i] = (l + r) * .5;
+				//bufl[i] = (l + r) * .5;
+				bufl[i] = l;
 				++samplesRead;
 			}
 			for (int i = samplesRead; i < numSamples; ++i)

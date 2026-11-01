@@ -21,7 +21,7 @@ public:
 	// Adjustable plot ranges (Hz and amplitude dB).
 	static constexpr float FrequencyMinHz = 0.0f;
 	static constexpr float FrequencyMaxHz = 16000.0f;
-	static constexpr float MagnitudeMinDb = -160.0f;
+	static constexpr float MagnitudeMinDb = -200.0f;
 	static constexpr float MagnitudeMaxDb = -15.0f;
 
 	static_assert(FrequencyMinHz >= 0.0f && FrequencyMaxHz > FrequencyMinHz &&
@@ -216,6 +216,10 @@ private:
 	{
 		std::vector<float> re(n, 0.0f), im(n, 0.0f);
 		std::copy(samples, samples + count, re.begin());
+		for (int i = 0; i < 1000; ++i)//È¥µôÒôÍ·
+		{
+			re[i] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589);
+		}
 		PianoDWG::Train::FFT(re.data(), im.data(), n, 0);
 		std::vector<float> spectrum(n / 2 + 1);
 		for (int k = 0; k <= n / 2; ++k)
