@@ -277,44 +277,61 @@ namespace PianoDWG
 			if (pos >= MaxDelay)pos = 0;
 			return y;
 		}
-	}; 
+	};
 	template<typename Sample, int MaxDelayTime>
-		class DelayLine2
+	class DelayLine2
 	{
 		static_assert(MaxDelayTime >= 1, "MaxDelayTime must be positive");
 		static constexpr int Capacity = MaxDelayTime + 1;
-		Sample buffer[Capacity]{};
+		Sample buffer[Capacity];
 		Sample delayTime = Sample(1);
 		int writePos = 0;
+		int validSamples = 0;
+		inline Sample ReadTap(int delay) const
+		{
+			if (delay >= validSamples) return Sample(0);
+			int pos = writePos - delay;
+			if (pos < 0) pos += Capacity;
+			return buffer[pos];
+		}
 	public:
 		void SetDelayTime(Sample value)
 		{
-			if (value < Sample(0)) value = Sample(0);
+			if (!(value >= Sample(0))) value = Sample(0);
 			if (value > Sample(MaxDelayTime)) value = Sample(MaxDelayTime);
 			delayTime = value;
 		}
+		constexpr static int NumParams = 1;
+		void InitParams(float* out)
+		{
+			SetDelayTime(300.);
+		}
+		void ParamsToVec(float* out)
+		{
+			out[0] = delayTime;
+		}
+		void VecToParams(float* in)
+		{
+			SetDelayTime(in[0]);
+		}
 		void Reset()
 		{
-			for (int i = 0; i < Capacity; ++i) buffer[i] = Sample(0);
 			writePos = 0;
+			validSamples = 0;
 		}
 		Sample ProcessSample(Sample x)
 		{
 			buffer[writePos] = x;
+			if (validSamples < Capacity) ++validSamples;
 			const int integerDelay = static_cast<int>(delayTime);
 			const Sample fraction = delayTime - Sample(integerDelay);
-			int newerPos = writePos - integerDelay;
-			if (newerPos < 0) newerPos += Capacity;
-			int olderPos = newerPos - 1;
-			if (olderPos < 0) olderPos += Capacity;
-			const Sample newer = buffer[newerPos];
-			const Sample older = buffer[olderPos];
+			const Sample newer = ReadTap(integerDelay);
+			const Sample older = ReadTap(integerDelay + 1);
 			const Sample y = newer + fraction * (older - newer);
 			if (++writePos == Capacity) writePos = 0;
 			return y;
 		}
 	};
-
 	template <typename Sample, int DelaySample>
 	class DelayLineStatic
 	{
@@ -367,7 +384,7 @@ namespace PianoDWG
 		void InitParams(Sample* out)
 		{
 			for (int i = 0; i < TableSize; ++i) hammer[i] = 0.;
-			hammer[0] = .1;
+			hammer[0] = 1.;
 			nlcells.InitParams(out + TableSize);
 			if (out) ParamsToVec(out);
 		}
@@ -399,6 +416,57 @@ namespace PianoDWG
 		{
 			if (pos < TableSize) return nlcells.ProcessSample(hammer[pos++] * g);
 			else return 0.;
+		}
+	};
+	template<typename Sample>
+	class HammerModel2
+	{
+	public:
+		constexpr static int TableSize = 512;
+		constexpr static int NumParams = TableSize + NLCells2<Sample>::NumParams;
+	private:
+		NLCells2<Sample> nlcells;
+		Sample hammer[TableSize];
+		int pos = 0;
+		Sample g = Sample(0);
+	public:
+		void InitParams(Sample* out)
+		{
+			for (int i = 0; i < TableSize; ++i) hammer[i] = (float)rand() / RAND_MAX * (rand() % 2 ? 1 : -1) / TableSize * 0.1;
+			//for (int i = 0; i < TableSize; ++i) hammer[i] = 0.;
+			hammer[0] = 1.;
+			if (out)
+			{
+				nlcells.InitParams(out + TableSize);
+				ParamsToVec(out);
+			}
+		}
+		void VecToParams(Sample* in)
+		{
+			for (int i = 0; i < TableSize; ++i) hammer[i] = in[i];
+			nlcells.VecToParams(in + TableSize);
+		}
+		void ParamsToVec(Sample* out)
+		{
+			for (int i = 0; i < TableSize; ++i) out[i] = hammer[i];
+			nlcells.ParamsToVec(out + TableSize);
+		}
+		void Reset()
+		{
+			pos = 0;
+			nlcells.Reset();
+		}
+		void NoteOn(Sample velocity)
+		{
+			pos = 0;
+			g = velocity;
+		}
+		Sample ProcessSample()
+		{
+			if (pos >= TableSize) return Sample(0);
+			const Sample x = hammer[pos] * g;
+			++pos;
+			return nlcells.ProcessSample(x);
 		}
 	};
 	template <typename Sample>
@@ -478,25 +546,32 @@ namespace PianoDWG
 	class PianoWaveguide
 	{
 	public:
+		using Hammer = HammerModel2<Sample>;
+		using Delay = DelayLine2<Sample, 1024>;
+		using Disperser = CascadeAPF<Sample, 4>;
+		using Bridge = LatticeIIR<Sample, 8>;
+		using Board = LatticeIIR<Sample, 8>;
+
 		constexpr static float SampleRate = 48000.;
 		constexpr static int NumStrings = 3;
 		constexpr static int NumParams =
-			NumStrings * (HammerModel<Sample>::NumParams +
-				LatticeAPF<Sample, 4>::NumParams +
-				NumStrings * LatticeIIR<Sample, 2>::NumParams +
-				LatticeIIR<Sample, 2>::NumParams);
+			NumStrings * (Hammer::NumParams +
+				Disperser::NumParams +
+				NumStrings * Bridge::NumParams +
+				Board::NumParams) + NumStrings;
 	public:
 		//HammerModel<Sample> hammer[NumStrings];//ÇÙé³Ä£ÐÍ
-		HammerModelStatic<Sample> hammer[NumStrings];//ÇÙé³Ä£ÐÍ
-		
+		//HammerModelStatic<Sample> hammer[NumStrings];//ÇÙé³Ä£ÐÍ
+		Hammer hammer[NumStrings];//ÇÙé³Ä£ÐÍ
+
 		//DelayLine<Sample, (int)SampleRate> delay[NumStrings];//²¨µ¼ÑÓ³Ù
 		//DelayLineStatic<Sample, 329> delay[NumStrings];//²¨µ¼ÑÓ³Ù
-		DelayLine2<Sample, 512> delay[NumStrings];//²¨µ¼ÑÓ³Ù
-		
+		Delay delay[NumStrings];//²¨µ¼ÑÓ³Ù
+
 		//LatticeAPF<Sample, 4> disperser[NumStrings];//ÇÙÏÒÉ«É¢
-		CascadeAPF<Sample, 4> disperser[NumStrings];//ÇÙÏÒÉ«É¢
-		LatticeIIR<Sample, 2> bridgeMatrix[NumStrings][NumStrings];//ÇÙÇÅñîºÏÏìÓ¦
-		LatticeIIR<Sample, 2> board[NumStrings];//ÇÙ°åÏìÓ¦
+		Disperser disperser[NumStrings];//ÇÙÏÒÉ«É¢
+		Bridge bridgeMatrix[NumStrings][NumStrings];//ÇÙÇÅñîºÏÏìÓ¦
+		Board board[NumStrings];//ÇÙ°åÏìÓ¦
 
 		Sample releaseDampV = 0.999;//ÊÍ·Å×èÄáÏµÊý
 
@@ -506,9 +581,6 @@ namespace PianoDWG
 		PianoWaveguide()
 		{
 			//SetBaseFreq(261.63);//C4
-			delay[0].SetDelayTime(328);
-			delay[1].SetDelayTime(329);
-			delay[2].SetDelayTime(330);
 			Reset();
 		}
 		void InitParams(Sample* out)
@@ -516,16 +588,18 @@ namespace PianoDWG
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				hammer[i].InitParams(out);
-				out += HammerModel<Sample>::NumParams;
+				out += Hammer::NumParams;
+				delay[i].InitParams(out);
+				out += 1;
 				disperser[i].InitParams(out);
-				out += LatticeAPF<Sample, 4>::NumParams;
+				out += Disperser::NumParams;
 				for (int j = 0; j < NumStrings; ++j)
 				{
 					bridgeMatrix[i][j].InitParams(out);
-					out += LatticeIIR<Sample, 2>::NumParams;
+					out += Bridge::NumParams;
 				}
 				board[i].InitParams(out);
-				out += LatticeIIR<Sample, 2>::NumParams;
+				out += Board::NumParams;
 			}
 		}
 		void VecToParams(Sample* in)
@@ -535,17 +609,19 @@ namespace PianoDWG
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				hammer[i].VecToParams(in);
-				in += HammerModel<Sample>::NumParams;
+				in += Hammer::NumParams;
+				delay[i].VecToParams(in);
+				in += 1;
 				disperser[i].VecToParams(in);
 				//disperser[i].VecToParams(dispersek);
-				in += LatticeAPF<Sample, 4>::NumParams;
+				in += Disperser::NumParams;
 				for (int j = 0; j < NumStrings; ++j)
 				{
 					bridgeMatrix[i][j].VecToParams(in);
-					in += LatticeIIR<Sample, 2>::NumParams;
+					in += Bridge::NumParams;
 				}
 				board[i].VecToParams(in);
-				in += LatticeIIR<Sample, 2>::NumParams;
+				in += Board::NumParams;
 			}
 		}
 		void ParamsToVec(Sample* out)
@@ -553,16 +629,18 @@ namespace PianoDWG
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				hammer[i].ParamsToVec(out);
-				out += HammerModel<Sample>::NumParams;
+				out += Hammer::NumParams;
+				delay[i].ParamsToVec(out);
+				out += 1;
 				disperser[i].ParamsToVec(out);
-				out += LatticeAPF<Sample, 4>::NumParams;
+				out += Disperser::NumParams;
 				for (int j = 0; j < NumStrings; ++j)
 				{
 					bridgeMatrix[i][j].ParamsToVec(out);
-					out += LatticeIIR<Sample, 2>::NumParams;
+					out += Bridge::NumParams;
 				}
 				board[i].ParamsToVec(out);
-				out += LatticeIIR<Sample, 2>::NumParams;
+				out += Board::NumParams;
 			}
 		}
 		/*
@@ -815,8 +893,8 @@ namespace PianoDWG
 					return sc + mag;
 				};
 
-			float l0 = CalcScale(64);
-			float l1 = CalcScale(512);
+			float l0 = CalcScale(512);
+			float l1 = CalcScale(2048);
 			float l2 = CalcScale(8192);
 
 			double tmse = 0.;
@@ -829,7 +907,7 @@ namespace PianoDWG
 			}
 			tmse *= 1000.;
 
-			return tmse + (l0 + l1 + l2) / 3.0f * 100.0;
+			return (l0 + l1 + l2) / 3.0f * 100.0;
 		}
 	}
 }

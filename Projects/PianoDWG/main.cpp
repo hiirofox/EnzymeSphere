@@ -9,7 +9,7 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-AdamW<float> opt(0.001, 0.01, 0.9, 0.9999);
+AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
 AdamW<float> optmk(0.005, 0.01, 0.9, 0.9999);
 WavReader wr;
 WavWriter ww;
@@ -137,13 +137,20 @@ int main()
 	//mkEstim();
 
 	if (!LoadCheckpoint())
+	{
 		instance1.InitParams(params);
-	//instance1.VecToParams(params);
-	//float dispersek[] = { -0.810856, -0.810637, -0.810371, -0.810073 };
-	//for (int i = 0; i < PianoDWG::PianoWaveguide<float>::NumStrings; ++i)
-	//	instance1.disperser[i].VecToParams(dispersek);
-	//instance1.ParamsToVec(params);
-
+		
+		instance1.VecToParams(params);
+		float delaySample = 329;
+		float dispersek[] = { -0.810856, -0.810637, -0.810371, -0.810073 };
+		for (int i = 0; i < PianoDWG::PianoWaveguide<float>::NumStrings; ++i)
+		{
+			instance1.disperser[i].VecToParams(dispersek);
+			instance1.delay[i].SetDelayTime(delaySample + (float)(i - 1) * 1. + .3);
+		}
+		instance1.ParamsToVec(params);
+		
+	}
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, target.data(), numSamples);
