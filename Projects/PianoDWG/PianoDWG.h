@@ -277,6 +277,42 @@ namespace PianoDWG
 			if (pos >= MaxDelay)pos = 0;
 			return y;
 		}
+	}; 
+	template<typename Sample, int MaxDelayTime>
+		class DelayLine2
+	{
+		static_assert(MaxDelayTime >= 1, "MaxDelayTime must be positive");
+		static constexpr int Capacity = MaxDelayTime + 1;
+		Sample buffer[Capacity]{};
+		Sample delayTime = Sample(1);
+		int writePos = 0;
+	public:
+		void SetDelayTime(Sample value)
+		{
+			if (value < Sample(0)) value = Sample(0);
+			if (value > Sample(MaxDelayTime)) value = Sample(MaxDelayTime);
+			delayTime = value;
+		}
+		void Reset()
+		{
+			for (int i = 0; i < Capacity; ++i) buffer[i] = Sample(0);
+			writePos = 0;
+		}
+		Sample ProcessSample(Sample x)
+		{
+			buffer[writePos] = x;
+			const int integerDelay = static_cast<int>(delayTime);
+			const Sample fraction = delayTime - Sample(integerDelay);
+			int newerPos = writePos - integerDelay;
+			if (newerPos < 0) newerPos += Capacity;
+			int olderPos = newerPos - 1;
+			if (olderPos < 0) olderPos += Capacity;
+			const Sample newer = buffer[newerPos];
+			const Sample older = buffer[olderPos];
+			const Sample y = newer + fraction * (older - newer);
+			if (++writePos == Capacity) writePos = 0;
+			return y;
+		}
 	};
 
 	template <typename Sample, int DelaySample>
@@ -449,13 +485,16 @@ namespace PianoDWG
 				LatticeAPF<Sample, 4>::NumParams +
 				NumStrings * LatticeIIR<Sample, 2>::NumParams +
 				LatticeIIR<Sample, 2>::NumParams);
-	private:
+	public:
 		//HammerModel<Sample> hammer[NumStrings];//ÇÙé³Ä£ÐÍ
 		HammerModelStatic<Sample> hammer[NumStrings];//ÇÙé³Ä£ÐÍ
+		
 		//DelayLine<Sample, (int)SampleRate> delay[NumStrings];//²¨µ¼ÑÓ³Ù
-		DelayLineStatic<Sample, 325> delay[NumStrings];//²¨µ¼ÑÓ³Ù
-		LatticeAPF<Sample, 4> disperser[NumStrings];//ÇÙÏÒÉ«É¢
-		//CascadeAPF<Sample, 4> disperser[NumStrings];//ÇÙÏÒÉ«É¢
+		//DelayLineStatic<Sample, 329> delay[NumStrings];//²¨µ¼ÑÓ³Ù
+		DelayLine2<Sample, 512> delay[NumStrings];//²¨µ¼ÑÓ³Ù
+		
+		//LatticeAPF<Sample, 4> disperser[NumStrings];//ÇÙÏÒÉ«É¢
+		CascadeAPF<Sample, 4> disperser[NumStrings];//ÇÙÏÒÉ«É¢
 		LatticeIIR<Sample, 2> bridgeMatrix[NumStrings][NumStrings];//ÇÙÇÅñîºÏÏìÓ¦
 		LatticeIIR<Sample, 2> board[NumStrings];//ÇÙ°åÏìÓ¦
 
@@ -467,6 +506,9 @@ namespace PianoDWG
 		PianoWaveguide()
 		{
 			//SetBaseFreq(261.63);//C4
+			delay[0].SetDelayTime(328);
+			delay[1].SetDelayTime(329);
+			delay[2].SetDelayTime(330);
 			Reset();
 		}
 		void InitParams(Sample* out)
@@ -488,14 +530,14 @@ namespace PianoDWG
 		}
 		void VecToParams(Sample* in)
 		{
-			float k1 = 0.877081952428, k2 = -0.983032106409, k3 = 0.990713663258, k4 = -0.995647276579;
-			float dispersek[] = { k1,k2,k3,k4 };
+			//float k1 = 0.877081952428, k2 = -0.983032106409, k3 = 0.990713663258, k4 = -0.995647276579;
+			//float dispersek[] = { -0.810856, -0.810637, -0.810371, -0.810073 };
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				hammer[i].VecToParams(in);
 				in += HammerModel<Sample>::NumParams;
-				//disperser[i].VecToParams(in);
-				disperser[i].VecToParams(dispersek);
+				disperser[i].VecToParams(in);
+				//disperser[i].VecToParams(dispersek);
 				in += LatticeAPF<Sample, 4>::NumParams;
 				for (int j = 0; j < NumStrings; ++j)
 				{
@@ -773,11 +815,21 @@ namespace PianoDWG
 					return sc + mag;
 				};
 
-			float l0 = CalcScale(256);
-			float l1 = CalcScale(1024);
-			float l2 = CalcScale(4096);
+			float l0 = CalcScale(64);
+			float l1 = CalcScale(512);
+			float l2 = CalcScale(8192);
 
-			return (l0 + l1 + l2) / 3.0f * 100.0;
+			double tmse = 0.;
+			for (int i = 0; i < numSamples; ++i)
+			{
+				double a = data->audio[i];
+				double t = target[i];
+				double v = a - t;
+				tmse += v * v / numSamples;
+			}
+			tmse *= 1000.;
+
+			return tmse + (l0 + l1 + l2) / 3.0f * 100.0;
 		}
 	}
 }

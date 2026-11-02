@@ -9,12 +9,14 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
-AdamW<float> optmk(0.001, 0.01, 0.9, 0.999);
+AdamW<float> opt(0.001, 0.01, 0.9, 0.9999);
+AdamW<float> optmk(0.005, 0.01, 0.9, 0.9999);
 WavReader wr;
+WavWriter ww;
 
 int numSamples;
 std::vector<float> target;
+std::vector<float> tmp;
 
 constexpr static int NumParams = PianoDWG::PianoWaveguide<float>::NumParams;
 float params[NumParams];
@@ -26,10 +28,26 @@ float bestloss = 9999999.;
 float bestparams[NumParams];
 void SaveCheckpoint()
 {
+	printf("save checkpoint!\n");
 	FILE* pf = fopen((root + "checkpoint.txt").c_str(), "w");
 	for (int i = 0; i < NumParams; ++i)
 		fprintf(pf, "%f, ", bestparams[i]);
 	fclose(pf);
+}
+void RenderNow()
+{
+	printf("render wav!\n");
+	tmp.resize(target.size());
+	ww.CreateWAV(root + "now.wav");
+	instance1.VecToParams(params);
+	instance1.Reset();
+	instance1.NoteOn(1.0);
+	instance1.ProcessBlock(tmp.data(), numSamples);
+	ww.WriteBlock(tmp.data(), tmp.data(), numSamples);
+	ww.Close();
+	ww.CreateWAV(root + "target.wav");
+	ww.WriteBlock(target.data(), target.data(), numSamples);
+	ww.Close();
 }
 int LoadCheckpoint()
 {
@@ -70,9 +88,36 @@ inline void MaskGradients(float* grads, int maskId)
 	}
 }
 
-constexpr int DispFreqCapacity = 400;
+constexpr int DispFreqCapacity = 40;
 int NumDispFreqs = DispFreqCapacity;
 float dispFreqs[DispFreqCapacity]{};
+void mkEstim()
+{
+	float mkparams[4] = { 0.51,0.52,0.53,0.54 };
+	float mkbestparams[4];
+	float mkbestloss = 9999999999.;
+	float mkgrads[4];
+	for (int iter = 0; iter < 2000; ++iter)
+	{
+		float loss = gradientMK(mkparams, mkgrads, 4, dispFreqs, NumDispFreqs);
+		float lr = optmk.Update(mkparams, mkgrads, 4, loss);
+		for (int i = 0; i < 4; ++i)
+		{
+			auto& v = mkparams[i];
+			if (v > 0.9995)v = 0.9995;
+			if (v < -0.999995)v = -0.999995;
+		}
+		if (mkbestloss > loss)
+		{
+			mkbestloss = loss;
+			for (int i = 0; i < 4; ++i)mkbestparams[i] = mkparams[i];
+		}
+		printf("iter:%d loss:%.5f\n", iter, loss);
+	}
+	int estim = OptimizeMK::m_lockf0(dispFreqs[0], mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
+	printf("m:%d,k={%f, %f, %f, %f}\n", estim, mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
+
+}
 TrainStateUI tui;
 int main()
 {
@@ -87,23 +132,22 @@ int main()
 
 	EstimationDelayK(target.data(), numSamples, dispFreqs, NumDispFreqs);
 	tui.UpdateTarget(target.data(), numSamples, dispFreqs, NumDispFreqs);
-	//先进行色散估计
-	float mkparams[5] = { 300.,0.01,0.02,0.03,0.04 };
-	float mkgrads[5];
-	for (int iter = 0;; ++iter)
-	{
-		float loss = gradientMK(mkparams, mkgrads, 5, dispFreqs, NumDispFreqs);
-		float lr = optmk.Update(mkparams, mkgrads, 5, loss);
-		printf("iter:%d loss:%.5f\n", iter, loss);
-	}
+
+	//基频色散估计
+	//mkEstim();
 
 	if (!LoadCheckpoint())
 		instance1.InitParams(params);
+	//instance1.VecToParams(params);
+	//float dispersek[] = { -0.810856, -0.810637, -0.810371, -0.810073 };
+	//for (int i = 0; i < PianoDWG::PianoWaveguide<float>::NumStrings; ++i)
+	//	instance1.disperser[i].VecToParams(dispersek);
+	//instance1.ParamsToVec(params);
 
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, target.data(), numSamples);
-		MaskGradients(grads, 2);
+		MaskGradients(grads, -1);
 
 		if (loss < bestloss)
 		{
@@ -115,6 +159,10 @@ int main()
 		{
 			haveBest = 0;
 			SaveCheckpoint();
+		}
+		if (iter % 100 == 0)
+		{
+			RenderNow();
 		}
 		if (iter % 5 == 0)
 		{

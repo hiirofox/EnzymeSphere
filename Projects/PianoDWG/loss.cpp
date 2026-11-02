@@ -39,7 +39,7 @@ float gradientMK(const float* params, float* grad, int numParams, float* target,
 	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
 	float lossOut, dLoss = 1.;
 	__enzyme_autodiff(
-		(void*)loss,
+		(void*)lossMK,
 		enzyme_dup, params, grad,
 		enzyme_dup, &lossOut, &dLoss,
 		enzyme_const, numParams,

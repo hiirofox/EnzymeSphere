@@ -13,7 +13,7 @@ namespace estimation_delay_k_detail
 	static const double kDefaultInitialB = 1.2e-4;
 	static const int kPianoModelFitPartials = 20;
 	static const int kMaxMeasuredPartials = 200;
-	static const double kMaxModelFrequency = 20000.0;
+	static const double kMaxModelFrequency = 10000.0;
 	static const double kSoftL1Scale = 0.15;
 	inline bool IsFinite(double x) { return std::isfinite(x) != 0; }
 	inline int NextPowerOfTwo(int n)
@@ -287,8 +287,20 @@ namespace OptimizeMK
 		const PhaseSlope p0 = stage(omega + p1.phase, 1.0 + p1.slope, k0);
 		return p0;
 	}
+	static inline PhaseSlope cascade_phase_slope(
+		double omega, double k0, double k1, double k2, double k3)
+	{
+		const PhaseSlope p0 = stage(omega, 1.0, k0);
+		const PhaseSlope p1 = stage(omega, 1.0, k1);
+		const PhaseSlope p2 = stage(omega, 1.0, k2);
+		const PhaseSlope p3 = stage(omega, 1.0, k3);
+		return {
+			p0.phase + p1.phase + p2.phase + p3.phase,
+			p0.slope + p1.slope + p2.slope + p3.slope
+		};
+	}
 #define HOMOTOPY_STEPS 20
-#define NEWTON_STEPS 12
+#define NEWTON_STEPS 20
 	inline double ks_freq(int i, double m, double k0, double k1, double k2, double k3, double fs)
 	{
 		double w = TWO_PI * (double)i / ((double)m + 4.0);
@@ -297,7 +309,7 @@ namespace OptimizeMK
 			const double t = (double)tstep / (double)HOMOTOPY_STEPS;
 			for (int step = 0; step < NEWTON_STEPS; ++step)
 			{
-				const PhaseSlope p = lattice_phase_slope(w, t * k0, t * k1, t * k2, t * k3);
+				const PhaseSlope p = cascade_phase_slope(w, t * k0, t * k1, t * k2, t * k3);
 				const double F = (double)m * w + p.phase - TWO_PI * (double)i;
 				const double dF = (double)m + p.slope;
 				w -= F / dF;
@@ -309,16 +321,38 @@ namespace OptimizeMK
 	{
 		return ks_freq(i, params[0], params[1], params[2], params[3], params[4], 48000.);
 	}
+	inline float m_lockf0(float f0, float k0, float k1, float k2, float k3)
+	{
+		const double omega = 6.28318530717958647692 * f0 / 48000.0;
+		const auto p = OptimizeMK::cascade_phase_slope(omega, k0, k1, k2, k3);
+		return static_cast<float>((6.28318530717958647692 - p.phase) / omega);
+	}
+}
+
+inline double softfloor(double x)
+{
+	const int N = 10;
+	double y = x - 0.5;
+	for (int n = 1; n <= N; ++n)
+		y += sin(2.0 * 3.141592653589 * n * x) / (3.141592653589 * n);
+	return y;
 }
 inline float LossMK(float* params, float* tgfreqs, int numTargets)
 {
 	double mse = 0.;
-	for (int i = 1; i < numTargets; ++i)
+	float k0 = params[0];
+	float k1 = params[1];
+	float k2 = params[2];
+	float k3 = params[3];
+	float mv = OptimizeMK::m_lockf0(tgfreqs[0], k0, k1, k2, k3);
+	float m = mv;
+
+	for (int i = 2; i < numTargets; ++i)
 	{
 		double tgf = tgfreqs[i - 1];
-		double ksf = OptimizeMK::ks_freq_params(i, params);
+		double ksf = OptimizeMK::ks_freq(i, m, k0, k1, k2, k3, 48000.);
 		double v = tgf - ksf;
-		mse += v * v;
+		mse += v * v * std::sqrt((float)i);
 	}
-	return mse;
+	return mse / numTargets * 0.001;
 }

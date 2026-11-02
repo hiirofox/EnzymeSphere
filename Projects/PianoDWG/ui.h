@@ -216,13 +216,12 @@ private:
 	{
 		std::vector<float> re(n, 0.0f), im(n, 0.0f);
 		std::copy(samples, samples + count, re.begin());
-		for (int i = 0; i < 1000; ++i)//去掉音头
+		for (int i = 0; i < 1000; ++i)
 		{
-			re[i] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589);
-		}
-		for (int i = 0; i < 1000; ++i)//去掉尾部
-		{
-			re[count + i - 1000] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589 + 3.141592653589);
+			//去掉音头
+			//re[i] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589);
+			//去掉尾部
+			//re[count + i - 1000] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589 + 3.141592653589);
 		}
 		PianoDWG::Train::FFT(re.data(), im.data(), n, 0);
 		std::vector<float> spectrum(n / 2 + 1);
