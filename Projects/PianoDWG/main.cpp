@@ -10,6 +10,7 @@
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
 AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
+AdamW<float> optmk(0.001, 0.01, 0.9, 0.999);
 WavReader wr;
 
 int numSamples;
@@ -86,6 +87,15 @@ int main()
 
 	EstimationDelayK(target.data(), numSamples, dispFreqs, NumDispFreqs);
 	tui.UpdateTarget(target.data(), numSamples, dispFreqs, NumDispFreqs);
+	//先进行色散估计
+	float mkparams[5] = { 300.,0.01,0.02,0.03,0.04 };
+	float mkgrads[5];
+	for (int iter = 0;; ++iter)
+	{
+		float loss = gradientMK(mkparams, mkgrads, 5, dispFreqs, NumDispFreqs);
+		float lr = optmk.Update(mkparams, mkgrads, 5, loss);
+		printf("iter:%d loss:%.5f\n", iter, loss);
+	}
 
 	if (!LoadCheckpoint())
 		instance1.InitParams(params);

@@ -1,5 +1,6 @@
 #include "loss.h"
 #include "PianoDWG.h"
+#include "estimationDelayK.h"
 
 extern "C" {
 	extern int enzyme_dup;
@@ -25,6 +26,25 @@ float gradient(const float* params, float* grad, int numParams, float* target, i
 		enzyme_const, numParams,
 		enzyme_const, target,
 		enzyme_const, numSamples
+	);
+	return lossOut;
+}
+
+void lossMK(float* params, float* lossOut, int numParams, float* target, int numTargets)
+{
+	*lossOut = LossMK(params, target, numTargets);
+}
+float gradientMK(const float* params, float* grad, int numParams, float* target, int numTargets)
+{
+	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
+	float lossOut, dLoss = 1.;
+	__enzyme_autodiff(
+		(void*)loss,
+		enzyme_dup, params, grad,
+		enzyme_dup, &lossOut, &dLoss,
+		enzyme_const, numParams,
+		enzyme_const, target,
+		enzyme_const, numTargets
 	);
 	return lossOut;
 }

@@ -220,6 +220,10 @@ private:
 		{
 			re[i] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589);
 		}
+		for (int i = 0; i < 1000; ++i)//È¥µôÎ²²¿
+		{
+			re[count + i - 1000] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589 + 3.141592653589);
+		}
 		PianoDWG::Train::FFT(re.data(), im.data(), n, 0);
 		std::vector<float> spectrum(n / 2 + 1);
 		for (int k = 0; k <= n / 2; ++k)
