@@ -638,12 +638,12 @@ namespace PianoDWG
 			//static_assert(Hammer::TableSize == 512, "Keep the original 512-sample Hammer");
 
 			//·ºÒô»ùÆµÉ«É¢¹À¼Æ
-			const int overtoneFreqTableLen = 25;
-			float overtoneFreqTable[overtoneFreqTableLen];
+			int overtoneFreqTableLen = 25;
+			float overtoneFreqTable[25];
 			EstimationDelayK((float*)target, numSamples, overtoneFreqTable, overtoneFreqTableLen, (float)SampleRate);
 			auto [zm, k0, k1, k2, k3] = mkEstim(overtoneFreqTable, overtoneFreqTableLen);
 			float ks[] = { k0, k1, k2, k3 };
-
+			printf("Waveguide DelayLength:%.5f\n", zm);
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				Sample* p = base + i * stride;
