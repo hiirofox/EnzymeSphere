@@ -12,7 +12,8 @@ std::string root = "D:/Projects/c++/EnzymeSphere/test/";
 // Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
 // to preserve the original AdamW + Train::LossSTFT training path.
 
-Adam<float> optV2(.00005, .9, .999);
+Adam<float> optV2(.0001);
+//LBFGS<float> optV2(.001);
 WavReader wr;
 WavWriter ww;
 
@@ -120,7 +121,8 @@ int main()
 		instance1.InitParams(params, target.data(), numSamples);
 	}
 
-	trainTarget.resize(200, 0.);
+	int tCompensate = PianoDWG::SampleRate / dispFreqs[0];//补偿一个周期延迟
+	trainTarget.resize(tCompensate,0.);
 	trainTarget.insert(trainTarget.end(), target.begin(), target.end());
 
 	for (int iter = 0, haveBest = 0;; ++iter)
