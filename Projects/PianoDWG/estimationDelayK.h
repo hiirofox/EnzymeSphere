@@ -118,7 +118,7 @@ namespace estimation_delay_k_detail
 				for (std::size_t bi = 0; bi < sizeof(bSeeds) / sizeof(bSeeds[0]); ++bi)
 				{
 					const double seedB = bSeeds[bi];
-					const double candidateF1 = peakHz / (hh * std::sqrt(1.0 + seedB * hh * hh));
+					const double candidateF1 = peakHz / (hh * std::sqrt((1.0 + seedB * hh * hh) / (1.0 + seedB)));
 					if (candidateF1 < 20.0 || candidateF1 > 5000.0) continue;
 					const int possible = (std::min)(kPianoModelFitPartials, static_cast<int>((nyquist - 1.0) / candidateF1));
 					if (possible <= 0) continue;
@@ -130,7 +130,7 @@ namespace estimation_delay_k_detail
 					{
 						const double nn = static_cast<double>(n);
 						const double weight = 1.0 / nn;
-						const double predicted = nn * candidateF1 * std::sqrt(1.0 + seedB * nn * nn);
+						const double predicted = nn * candidateF1 * std::sqrt((1.0 + seedB * nn * nn) / (1.0 + seedB));
 						const double tolerance = (std::max)(3.0 * binHz, 0.003 * predicted);
 						totalWeight += weight;
 						double foundHz = 0.0;
@@ -157,9 +157,56 @@ namespace estimation_delay_k_detail
 			}
 		}
 		if (!(bestScore > 0.0) || !(bestF1 >= 20.0) || !IsFinite(bestF1)) return false;
+		for (int pass = 0; pass < 4; ++pass)
+		{
+			double lowerSupport = 0.0;
+			double lowerF1 = 0.0;
+			double lowerB = bestB;
+			for (int divisor = 2; divisor <= 8; ++divisor)
+			{
+				for (std::size_t bi = 0; bi < sizeof(bSeeds) / sizeof(bSeeds[0]); ++bi)
+				{
+					const double subB = bSeeds[bi];
+					const double divisorScale = static_cast<double>(divisor) * std::sqrt((1.0 + subB * divisor * divisor) / (1.0 + subB));
+					const double subF1 = bestF1 / divisorScale;
+					if (subF1 < 20.0 || subF1 >= bestF1) continue;
+					const int possible = (std::min)(24, static_cast<int>((nyquist - 1.0) / subF1));
+					double support = 0.0;
+					int hits = 0;
+					for (int n = 1; n <= possible; ++n)
+					{
+						if (n % divisor == 0) continue;
+						const double nn = static_cast<double>(n);
+						const double predicted = nn * subF1 * std::sqrt((1.0 + subB * nn * nn) / (1.0 + subB));
+						const double tolerance = (std::max)(3.0 * binHz, 0.003 * predicted);
+						double foundHz = 0.0;
+						double amplitude = 0.0;
+						if (FindPeakInRange(mag, predicted - tolerance, predicted + tolerance, sampleRate, nfft, foundHz, &amplitude) && amplitude >= maxMagnitude * 0.05)
+						{
+							const double error = std::fabs(foundHz - predicted) / tolerance;
+							const double frequencyScore = std::exp(-0.5 * error * error);
+							if (frequencyScore >= 0.25)
+							{
+								support += std::sqrt(amplitude / maxMagnitude) * frequencyScore / std::sqrt(nn);
+								++hits;
+							}
+						}
+					}
+					if (hits >= 2 && support > lowerSupport)
+					{
+						lowerSupport = support;
+						lowerF1 = subF1;
+						lowerB = subB;
+					}
+				}
+			}
+			if (lowerSupport < 0.20) break;
+			bestF1 = lowerF1;
+			bestB = lowerB;
+		}
 		f1 = bestF1;
 		initialB = bestB;
-		return true;
+		return IsFinite(f1) && f1 >= 20.0 && IsFinite(initialB) && initialB >= 0.0;
 	}
 	inline double PianoFitCost(double a, double b, const std::vector<double>& observed, double f1)
 	{
@@ -458,7 +505,7 @@ inline float LossMK(float* params, float* tgfreqs, int numTargets)
 	float k2 = params[2];
 	float k3 = params[3];
 	float mv = OptimizeMK::m_lockf0(tgfreqs[0], k0, k1, k2, k3);
-	float m = mv;
+	float m = mv > 1. ? mv : 1.;
 
 	for (int i = 2; i < numTargets; ++i)
 	{

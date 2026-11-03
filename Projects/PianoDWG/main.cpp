@@ -9,7 +9,7 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-std::string targetfile = "72C-22050";//.wav
+std::string targetfile = "C96-22050";//.wav
 
 // Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
 // to preserve the original AdamW + Train::LossSTFT training path.

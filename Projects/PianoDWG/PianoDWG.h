@@ -643,6 +643,8 @@ namespace PianoDWG
 			EstimationDelayK((float*)target, numSamples, overtoneFreqTable, overtoneFreqTableLen, (float)SampleRate);
 			auto [zm, k0, k1, k2, k3] = mkEstim(overtoneFreqTable, overtoneFreqTableLen);
 			float ks[] = { k0, k1, k2, k3 };
+			zm -= 1.;//补偿PianoWaveguide计算图隐含的延迟
+			if (zm < 1)zm = 1.;
 			printf("Waveguide DelayLength:%.5f\n", zm);
 			for (int i = 0; i < NumStrings; ++i)
 			{
@@ -674,6 +676,7 @@ namespace PianoDWG
 					Sample* bp = p + bridges + j * Bridge::NumParams;
 					for (int k = 0; k < Bridge::NumParams; ++k) bp[k] = Sample(0);
 					bp[Bridge::NumParams - 1] = (i == j) ? Sample(2.999) : Sample(-.006);//对角大，非对角小
+					if (zm < 40.)bp[Bridge::NumParams - 1] *= .995;//高音增加阻尼以提高稳定性
 				}
 			}
 			VecToParams(base);
