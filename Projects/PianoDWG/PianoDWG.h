@@ -450,7 +450,7 @@ namespace PianoDWG
 	class HammerModel2
 	{
 	public:
-		constexpr static int TableSize = 512;
+		constexpr static int TableSize = 1024;
 		constexpr static int NumParams = TableSize + NLCells2<Sample>::NumParams;
 	private:
 		NLCells2<Sample> nlcells;
@@ -634,7 +634,7 @@ namespace PianoDWG
 			}
 			if (!base) return;
 			constexpr int stride = NumParams / NumStrings;
-			static_assert(Hammer::TableSize == 512, "Keep the original 512-sample Hammer");
+			//static_assert(Hammer::TableSize == 512, "Keep the original 512-sample Hammer");
 
 			//·ºÒô»ùÆµÉ«É¢¹À¼Æ
 			const int overtoneFreqTableLen = 25;
@@ -754,6 +754,11 @@ namespace PianoDWG
 		{
 			for (int j = 0; j < NumStrings; ++j)
 				pass[j] += hammer[j].ProcessSample();
+			
+			//Sample y = 0.;
+			//for (int j = 0; j < NumStrings; ++j)
+			//	y += board[j].ProcessSample(pass[j]);
+
 			for (int j = 0; j < NumStrings; ++j)
 				pass[j] = delay[j].ProcessSample(pass[j]);
 			for (int j = 0; j < NumStrings; ++j)
@@ -767,9 +772,11 @@ namespace PianoDWG
 			}
 			for (int j = 0; j < NumStrings; ++j)
 				pass[j] = tmp[j] * damp * divStrs;
+
 			Sample y = 0.;
 			for (int j = 0; j < NumStrings; ++j)
 				y += board[j].ProcessSample(tmp[j]);
+
 			return y;
 		}
 		void ProcessBlock(Sample* out, int NumSamples)

@@ -13,7 +13,7 @@ std::string root = "D:/Projects/c++/EnzymeSphere/test/";
 // to preserve the original AdamW + Train::LossSTFT training path.
 
 Adam<float> optV2(.0001);
-//LBFGS<float> optV2(.001);
+//LBFGS<float> optV2(.0001);
 WavReader wr;
 WavWriter ww;
 
@@ -102,7 +102,7 @@ int main()
 {
 	tui.Create();
 
-	wr.OpenWAV(root + "C4-22050.wav");
+	wr.OpenWAV(root + "C3Elec-22050.wav");
 	numSamples = (int)wr.GetNumSamples();
 	target.resize(numSamples);
 	wr.ReadBlock(target.data(), target.data(), numSamples);
@@ -117,7 +117,6 @@ int main()
 
 	if (!LoadCheckpoint())
 	{
-		// C3 model seed at PianoDWG::SampleRate; optional target-head Hammer seed.
 		instance1.InitParams(params, target.data(), numSamples);
 	}
 
