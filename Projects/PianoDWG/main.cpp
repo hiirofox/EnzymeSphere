@@ -9,8 +9,11 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
+// Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
+// to preserve the original AdamW + Train::LossSTFT training path.
+
 AdamW<float> opt(0.0001, 0.01, 0.9, 0.999);
-AdamW<float> optmk(0.005, 0.01, 0.9, 0.9999);
+
 WavReader wr;
 WavWriter ww;
 
@@ -19,6 +22,7 @@ std::vector<float> target;
 std::vector<float> tmp;
 
 constexpr static int NumParams = PianoDWG::PianoWaveguide<float>::NumParams;
+Adam<float> optV2(NumParams);
 float params[NumParams];
 float grads[NumParams];
 
@@ -38,14 +42,14 @@ void RenderNow()
 {
 	printf("render wav!\n");
 	tmp.resize(target.size());
-	ww.CreateWAV(root + "now.wav");
+	ww.CreateWAV(root + "now.wav", PianoDWG::SampleRate);
 	instance1.VecToParams(params);
 	instance1.Reset();
 	instance1.NoteOn(1.0);
 	instance1.ProcessBlock(tmp.data(), numSamples);
 	ww.WriteBlock(tmp.data(), tmp.data(), numSamples);
 	ww.Close();
-	ww.CreateWAV(root + "target.wav");
+	ww.CreateWAV(root + "target.wav", PianoDWG::SampleRate);
 	ww.WriteBlock(target.data(), target.data(), numSamples);
 	ww.Close();
 }
@@ -91,33 +95,7 @@ inline void MaskGradients(float* grads, int maskId)
 constexpr int DispFreqCapacity = 40;
 int NumDispFreqs = DispFreqCapacity;
 float dispFreqs[DispFreqCapacity]{};
-void mkEstim()
-{
-	float mkparams[4] = { 0.51,0.52,0.53,0.54 };
-	float mkbestparams[4];
-	float mkbestloss = 9999999999.;
-	float mkgrads[4];
-	for (int iter = 0; iter < 2000; ++iter)
-	{
-		float loss = gradientMK(mkparams, mkgrads, 4, dispFreqs, NumDispFreqs);
-		float lr = optmk.Update(mkparams, mkgrads, 4, loss);
-		for (int i = 0; i < 4; ++i)
-		{
-			auto& v = mkparams[i];
-			if (v > 0.9995)v = 0.9995;
-			if (v < -0.999995)v = -0.999995;
-		}
-		if (mkbestloss > loss)
-		{
-			mkbestloss = loss;
-			for (int i = 0; i < 4; ++i)mkbestparams[i] = mkparams[i];
-		}
-		printf("iter:%d loss:%.5f\n", iter, loss);
-	}
-	int estim = OptimizeMK::m_lockf0(dispFreqs[0], mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
-	printf("m:%d,k={%f, %f, %f, %f}\n", estim, mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
 
-}
 TrainStateUI tui;
 int main()
 {
@@ -138,22 +116,13 @@ int main()
 
 	if (!LoadCheckpoint())
 	{
-		instance1.InitParams(params);
-		
-		instance1.VecToParams(params);
-		float delaySample = 329;
-		float dispersek[] = { -0.810856, -0.810637, -0.810371, -0.810073 };
-		for (int i = 0; i < PianoDWG::PianoWaveguide<float>::NumStrings; ++i)
-		{
-			instance1.disperser[i].VecToParams(dispersek);
-			instance1.delay[i].SetDelayTime(delaySample + (float)(i - 1) * 1. + .3);
-		}
-		instance1.ParamsToVec(params);
-		
+		// C3 model seed at PianoDWG::SampleRate; optional target-head Hammer seed.
+		instance1.InitParams(params, target.data(), numSamples);
+
 	}
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
-		float loss = gradient(params, grads, NumParams, target.data(), numSamples);
+		float loss = gradientV2(params, grads, NumParams, target.data(), numSamples);
 		MaskGradients(grads, -1);
 
 		if (loss < bestloss)
@@ -175,7 +144,8 @@ int main()
 		{
 			tui.UpdateAndRepaint(params, NumParams);
 		}
-		float lr = opt.Update(params, grads, NumParams, loss);
+		optV2.Update(params, grads, NumParams, 0.0004f, 5.f);
+		float lr = 0.0004f;
 		float losg = 0.;
 		for (int i = 0; i < NumParams; ++i)losg += grads[i] * grads[i];
 		printf("iter:%d loss=%f losg=%f lr=%f\n", iter, loss, losg, lr);

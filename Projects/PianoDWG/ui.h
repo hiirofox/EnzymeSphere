@@ -20,7 +20,7 @@ class TrainStateUI : public D2DCanvas
 public:
 	// Adjustable plot ranges (Hz and amplitude dB).
 	static constexpr float FrequencyMinHz = 0.0f;
-	static constexpr float FrequencyMaxHz = 16000.0f;
+	static constexpr float FrequencyMaxHz = 11000.0f;
 	static constexpr float MagnitudeMinDb = -200.0f;
 	static constexpr float MagnitudeMaxDb = -15.0f;
 

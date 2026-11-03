@@ -1,4 +1,5 @@
 #pragma once
+#include "PianoDWG.h"
 
 #include <fstream>
 #include <string>
@@ -8,7 +9,7 @@
 class WavWriter
 {
 public:
-	void CreateWAV(std::string path, float sampleRate = 48000.0f)
+	void CreateWAV(std::string path, float sampleRate = PianoDWG::SampleRate)
 	{
 		Close();
 
@@ -63,7 +64,7 @@ public:
 
 private:
 	std::ofstream m_file;
-	uint32_t m_sampleRate = 48000;
+	uint32_t m_sampleRate = static_cast<uint32_t>(PianoDWG::SampleRate);
 	uint32_t m_dataBytes = 0;
 
 	static int16_t FloatToInt16(float v)
@@ -367,6 +368,24 @@ private:
 		}
 
 		// =========================================
+		// Added: 24-bit signed PCM reader for Iowa C3.
+		else if (m_audioFormat == 1 && m_bitsPerSample == 24 &&
+		         (m_numChannels == 1 || m_numChannels == 2))
+		{
+			auto read24 = [this]() -> float {
+				unsigned char b[3] = {};
+				m_file.read(reinterpret_cast<char*>(b), 3);
+				int32_t v = int32_t(b[0]) | (int32_t(b[1]) << 8) |
+				            (int32_t(b[2]) << 16);
+				if (v & 0x800000) v |= ~0xffffff;
+				return float(v) / 8388608.f;
+			};
+			l = read24();
+			r = (m_numChannels == 2) ? read24() : l;
+			if (!m_file) return false;
+		}
+
+		// =========================================
 		// 32-bit IEEE Float
 		// =========================================
 		else if (m_audioFormat == 3 &&
@@ -467,6 +486,14 @@ private:
 				ReadValue(m_blockAlign);
 				ReadValue(m_bitsPerSample);
 
+				// WAVE_FORMAT_EXTENSIBLE, with PCM (1) or IEEE float (3) subtype.
+				if (m_audioFormat == 0xfffe && chunkSize >= 40) {
+					m_file.seekg(chunkDataStart + std::streamoff(24));
+					uint32_t subFormat = 0;
+					ReadValue(subFormat);
+					if (subFormat == 1 || subFormat == 3) m_audioFormat = uint16_t(subFormat);
+				}
+
 				if (!m_file)
 				{
 					Close();
@@ -518,6 +545,10 @@ private:
 
 		if (m_audioFormat == 1 &&
 			m_bitsPerSample == 16)
+		{
+			supported = true;
+		}
+		else if (m_audioFormat == 1 && m_bitsPerSample == 24)
 		{
 			supported = true;
 		}

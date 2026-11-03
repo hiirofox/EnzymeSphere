@@ -1,4 +1,9 @@
 #pragma once
+#include "define.h"
+#include "loss.h"
+#include "PianoDWG.h"
+#include "optimizer.h"
+
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -257,7 +262,7 @@ inline void EstimationDelayK(float* target, int numSamples, float* dispFreqs, in
 }
 inline void EstimationDelayK(float* target, int numSamples, float* dispFreqs, int numDispFreqs)
 {
-	EstimationDelayK(target, numSamples, dispFreqs, numDispFreqs, 48000.);
+	EstimationDelayK(target, numSamples, dispFreqs, numDispFreqs, PianoDWG::SampleRate);
 }
 
 namespace OptimizeMK
@@ -319,11 +324,11 @@ namespace OptimizeMK
 	}
 	inline float ks_freq_params(int i, float* params)
 	{
-		return ks_freq(i, params[0], params[1], params[2], params[3], params[4], 48000.);
+		return ks_freq(i, params[0], params[1], params[2], params[3], params[4], PianoDWG::SampleRate);
 	}
 	inline float m_lockf0(float f0, float k0, float k1, float k2, float k3)
 	{
-		const double omega = 6.28318530717958647692 * f0 / 48000.0;
+		const double omega = 6.28318530717958647692 * f0 / PianoDWG::SampleRate;
 		const auto p = OptimizeMK::cascade_phase_slope(omega, k0, k1, k2, k3);
 		return static_cast<float>((6.28318530717958647692 - p.phase) / omega);
 	}
@@ -350,9 +355,37 @@ inline float LossMK(float* params, float* tgfreqs, int numTargets)
 	for (int i = 2; i < numTargets; ++i)
 	{
 		double tgf = tgfreqs[i - 1];
-		double ksf = OptimizeMK::ks_freq(i, m, k0, k1, k2, k3, 48000.);
+		double ksf = OptimizeMK::ks_freq(i, m, k0, k1, k2, k3, PianoDWG::SampleRate);
 		double v = tgf - ksf;
 		mse += v * v * std::sqrt((float)i);
 	}
 	return mse / numTargets * 0.001;
+}
+
+inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, int NumDispFreqs)//估计基频与色散
+{
+	AdamW<float> optmk(0.005, 0.01, 0.9, 0.9999);
+	float mkparams[4] = { 0.51,0.52,0.53,0.54 };
+	float mkbestparams[4];
+	float mkbestloss = 9999999999.;
+	float mkgrads[4];
+	for (int iter = 0; iter < 2000; ++iter)
+	{
+		float loss = gradientMK(mkparams, mkgrads, 4, dispFreqs, NumDispFreqs);
+		float lr = optmk.Update(mkparams, mkgrads, 4, loss);
+		for (int i = 0; i < 4; ++i)
+		{
+			auto& v = mkparams[i];
+			if (v > 0.9995)v = 0.9995;
+			if (v < -0.999995)v = -0.999995;
+		}
+		if (mkbestloss > loss)
+		{
+			mkbestloss = loss;
+			for (int i = 0; i < 4; ++i)mkbestparams[i] = mkparams[i];
+		}
+		printf("iter:%d loss:%.5f\n", iter, loss);
+	}
+	float estim = OptimizeMK::m_lockf0(dispFreqs[0], mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
+	printf("m:%f,k={%f, %f, %f, %f}\n", estim, mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
 }

@@ -6,7 +6,7 @@ set(_enzyme_clang "${CMAKE_CURRENT_LIST_DIR}/clang.exe")
 set(_enzyme_plugin "${CMAKE_CURRENT_LIST_DIR}/ClangEnzyme-21.dll")
 
 # 保留大对象中浮点缓冲区后方的整数状态类型；Enzyme 默认只保留到偏移 500。
-set(CLANG_ENZYME_MAX_TYPE_OFFSET 10000 CACHE STRING
+set(CLANG_ENZYME_MAX_TYPE_OFFSET 10000000 CACHE STRING
     "Maximum memory offset retained by Enzyme type analysis")
 
 if(NOT TARGET Enzyme::Clang)
