@@ -645,7 +645,7 @@ namespace PianoDWG
 				//for (int j = 0; j < Disperser::NumParams; ++j)
 				//	p[Hammer::NumParams + 1 + j] = Sample(-.52);
 				//应用基频色散估计结果
-				p[Hammer::NumParams] = zm + (Sample)(i - 1) * 0.5;//delay z^-m
+				p[Hammer::NumParams] = zm + (Sample)(i - 1) * 0.15;//delay z^-m
 				for (int j = 0; j < Disperser::NumParams; ++j)
 					p[Hammer::NumParams + 1 + j] = ks[j];//disperser
 

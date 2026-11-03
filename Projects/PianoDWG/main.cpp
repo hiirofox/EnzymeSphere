@@ -12,11 +12,12 @@ std::string root = "D:/Projects/c++/EnzymeSphere/test/";
 // Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
 // to preserve the original AdamW + Train::LossSTFT training path.
 
-Adam<float> optV2(.0005, .9, .999);
+Adam<float> optV2(.00005, .9, .999);
 WavReader wr;
 WavWriter ww;
 
 int numSamples;
+std::vector<float> trainTarget;
 std::vector<float> target;
 std::vector<float> tmp;
 
@@ -117,11 +118,14 @@ int main()
 	{
 		// C3 model seed at PianoDWG::SampleRate; optional target-head Hammer seed.
 		instance1.InitParams(params, target.data(), numSamples);
-
 	}
+
+	trainTarget.resize(200, 0.);
+	trainTarget.insert(trainTarget.end(), target.begin(), target.end());
+
 	for (int iter = 0, haveBest = 0;; ++iter)
 	{
-		float loss = gradientV2(params, grads, NumParams, target.data(), numSamples);
+		float loss = gradientV2(params, grads, NumParams, trainTarget.data(), trainTarget.size());
 		MaskGradients(grads, -1);
 
 		if (loss < bestloss)
