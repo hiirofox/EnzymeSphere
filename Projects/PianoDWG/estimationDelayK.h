@@ -365,7 +365,7 @@ inline float LossMK(float* params, float* tgfreqs, int numTargets)
 inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, int NumDispFreqs)//估计基频与色散
 {
 	AdamW<float> optmk(0.005, 0.01, 0.9, 0.9999);
-	float mkparams[4] = { 0.51,0.52,0.53,0.54 };
+	float mkparams[4] = { -0.51,-0.52,-0.53,-0.54 };
 	float mkbestparams[4];
 	float mkbestloss = 9999999999.;
 	float mkgrads[4];
@@ -376,7 +376,7 @@ inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, i
 		for (int i = 0; i < 4; ++i)
 		{
 			auto& v = mkparams[i];
-			if (v > 0.9995)v = 0.9995;
+			if (v > -0.5)v = -0.5;
 			if (v < -0.999995)v = -0.999995;
 		}
 		if (mkbestloss > loss)
@@ -388,4 +388,5 @@ inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, i
 	}
 	float estim = OptimizeMK::m_lockf0(dispFreqs[0], mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
 	printf("m:%f,k={%f, %f, %f, %f}\n", estim, mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
+	return { estim, mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3] };
 }

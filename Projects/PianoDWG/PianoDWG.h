@@ -617,6 +617,14 @@ namespace PianoDWG
 			if (!base) return;
 			constexpr int stride = NumParams / NumStrings;
 			static_assert(Hammer::TableSize == 512, "Keep the original 512-sample Hammer");
+
+			//泛音基频色散估计
+			const int overtoneFreqTableLen = 25;
+			float overtoneFreqTable[overtoneFreqTableLen];
+			EstimationDelayK((float*)target, numSamples, overtoneFreqTable, overtoneFreqTableLen, (float)SampleRate);
+			auto [zm, k0, k1, k2, k3] = mkEstim(overtoneFreqTable, overtoneFreqTableLen);
+			float ks[] = { k0, k1, k2, k3 };
+
 			for (int i = 0; i < NumStrings; ++i)
 			{
 				Sample* p = base + i * stride;
@@ -633,15 +641,20 @@ namespace PianoDWG
 						p[j] = (desired - returning) / Sample(2.96);
 					}
 				}
-				p[Hammer::NumParams] = Sample(155.4 * 2. + (i - 1) * .12);
+				//p[Hammer::NumParams] = Sample(155.4 * 2. + (i - 1) * .12);
+				//for (int j = 0; j < Disperser::NumParams; ++j)
+				//	p[Hammer::NumParams + 1 + j] = Sample(-.52);
+				//应用基频色散估计结果
+				p[Hammer::NumParams] = zm + (Sample)(i - 1) * .12;//delay z^-m
 				for (int j = 0; j < Disperser::NumParams; ++j)
-					p[Hammer::NumParams + 1 + j] = Sample(-.52);
+					p[Hammer::NumParams + 1 + j] = ks[j];//disperser
+
 				const int bridges = Hammer::NumParams + 1 + Disperser::NumParams;
 				for (int j = 0; j < NumStrings; ++j)
 				{
 					Sample* bp = p + bridges + j * Bridge::NumParams;
 					for (int k = 0; k < Bridge::NumParams; ++k) bp[k] = Sample(0);
-					bp[Bridge::NumParams - 1] = (i == j) ? Sample(2.96) : Sample(-.006);
+					bp[Bridge::NumParams - 1] = (i == j) ? Sample(2.96) : Sample(-.006) + ((float)rand() / RAND_MAX * .01 + (rand() % 2 ? 1 : -1));//对角大，非对角小
 				}
 			}
 			VecToParams(base);
