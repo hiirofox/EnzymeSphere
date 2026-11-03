@@ -9,7 +9,7 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-AdamW<float> opt(0.001, 0.01, 0.9, 0.999);
+AdamW<float> opt(0.0001, 0.01, 0.9, 0.999);
 AdamW<float> optmk(0.005, 0.01, 0.9, 0.9999);
 WavReader wr;
 WavWriter ww;

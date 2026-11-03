@@ -133,7 +133,7 @@ namespace PianoDWG
 		{
 			for (int i = 0; i < NumLayers; ++i)k[i] = 0.;
 			for (int i = 0; i < NumLayers + 1; ++i)g[i] = 0.;
-			g[0] = 1.;
+			g[NumLayers] = 1.;
 			if (out) ParamsToVec(out);
 		}
 		void VecToParams(Sample* in)
@@ -432,9 +432,9 @@ namespace PianoDWG
 	public:
 		void InitParams(Sample* out)
 		{
-			for (int i = 0; i < TableSize; ++i) hammer[i] = (float)rand() / RAND_MAX * (rand() % 2 ? 1 : -1) / TableSize * 0.1;
+			for (int i = 0; i < TableSize; ++i) hammer[i] = (float)rand() / RAND_MAX * (rand() % 2 ? 1 : -1) / TableSize;
 			//for (int i = 0; i < TableSize; ++i) hammer[i] = 0.;
-			hammer[0] = 1.;
+			//ammer[0] = 1.;
 			if (out)
 			{
 				nlcells.InitParams(out + TableSize);
@@ -831,71 +831,49 @@ namespace PianoDWG
 				data->audio[i] = instance->ProcessSample();
 
 			// Calculate multi-resolution STFT loss.
-			auto CalcScale = [&](int N) -> float
+			auto CalcScale = [&](int windowSize) -> float
 				{
-					int Hop = N / 2;
+					int hop = windowSize / 2;
 					float* yr = data->yr.data();
 					float* yi = data->yi.data();
 					float* tr = data->tr.data();
 					float* ti = data->ti.data();
 					float* window = data->window.data();
 
-					for (int i = 0; i < N; ++i)
-						window[i] = 0.5f - 0.5f * cosf(2.0f * PI * i / N);
+					for (int i = 0; i < windowSize; ++i)
+						window[i] = 0.5f - 0.5f * cosf(2.0f * PI * i / windowSize);
 
-					int frameCount = (numSamples + Hop - 1) / Hop;
-
-					float diffSq = 0.0f;
-					float targetSq = 0.0f;
-					float logSum = 0.0f;
-
-					for (int frame = 0; frame < frameCount; ++frame)
+					double l = 0.;
+					for (int i = 0; i < numSamples - windowSize; i += hop)
 					{
-						int start = frame * Hop - N / 2;
-
-						for (int i = 0; i < N; ++i)
+						for (int j = 0; j < windowSize; ++j)
 						{
-							int idx = start + i;
-
-							float x = (idx >= 0 && idx < numSamples) ? data->audio[idx] : 0.0f;
-							float t = (idx >= 0 && idx < numSamples) ? target[idx] : 0.0f;
-
-							yr[i] = x * window[i];
-							yi[i] = 0.0f;
-							tr[i] = t * window[i];
-							ti[i] = 0.0f;
+							yr[j] = data->audio[i + j] * window[j];
+							yi[j] = 0.;
+							tr[j] = target[i + j] * window[j];
+							ti[j] = 0.;
 						}
-
-						FFT(yr, yi, N, 0);
-						FFT(tr, ti, N, 0);
-
-						for (int k = 1; k <= N / 2; ++k)
+						FFT(yr, yi, windowSize, 0);
+						FFT(tr, ti, windowSize, 0);
+						double l1 = 0.;
+						for (int j = 1; j < windowSize / 2; ++j)
 						{
-							float ym = sqrtf(yr[k] * yr[k] + yi[k] * yi[k] + MagEps * MagEps);
-							float tm = sqrtf(tr[k] * tr[k] + ti[k] * ti[k] + MagEps * MagEps);
-
-							float d = ym - tm;
-							float w = 1.;
-
-							diffSq += w * d * d;
-							targetSq += w * tm * tm;
-
-							float ld = logf(ym + MagEps) - logf(tm + MagEps);
-							logSum += w * (sqrtf(ld * ld + AbsEps * AbsEps) - AbsEps);
+							float magy = std::sqrt(yr[j] * yr[j] + yi[j] * yi[j]);
+							float magt = std::sqrt(tr[j] * tr[j] + ti[j] * ti[j]);
+							float lmy = std::log(magy + 1e-5);
+							float lmt = std::log(magt + 1e-5);
+							float vl = (lmy - lmt) / (windowSize / 2);
+							float v = (magy - magt) / (windowSize / 2);
+							l1 += vl * vl + v * v * 10.;
 						}
+						l += l1 / (numSamples / hop);
 					}
-
-					float sc = (sqrtf(diffSq + NormEps * NormEps) - NormEps)
-						/ sqrtf(targetSq + NormEps * NormEps);
-
-					float mag = logSum / (frameCount * N);
-
-					return sc + mag;
+					return l;
 				};
 
-			float l0 = CalcScale(512);
-			float l1 = CalcScale(2048);
-			float l2 = CalcScale(8192);
+			//float l0 = CalcScale(512);
+			float l1 = CalcScale(512);
+			//float l2 = CalcScale(8192);
 
 			double tmse = 0.;
 			for (int i = 0; i < numSamples; ++i)
@@ -907,7 +885,7 @@ namespace PianoDWG
 			}
 			tmse *= 1000.;
 
-			return (l0 + l1 + l2) / 3.0f * 100.0;
+			return l1 * 1000.;
 		}
 	}
 }
