@@ -579,6 +579,7 @@ namespace PianoDWG
 		using Disperser = CascadeAPF<Sample, 4>;
 		using Bridge = LatticeIIR<Sample, 8>;
 		using Board = LatticeIIR<Sample, 8>;
+		//using OutputDist = NLCells2<Sample>;
 
 		constexpr static float SampleRate = PianoDWG::SampleRate;
 		constexpr static int NumStrings = 3;
@@ -754,7 +755,7 @@ namespace PianoDWG
 		{
 			for (int j = 0; j < NumStrings; ++j)
 				pass[j] += hammer[j].ProcessSample();
-			
+
 			//Sample y = 0.;
 			//for (int j = 0; j < NumStrings; ++j)
 			//	y += board[j].ProcessSample(pass[j]);

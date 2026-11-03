@@ -102,7 +102,7 @@ int main()
 {
 	tui.Create();
 
-	wr.OpenWAV(root + "C3Elec-22050.wav");
+	wr.OpenWAV(root + "C3Gut-22050.wav");
 	numSamples = (int)wr.GetNumSamples();
 	target.resize(numSamples);
 	wr.ReadBlock(target.data(), target.data(), numSamples);
