@@ -48,45 +48,43 @@ public:
 
 // Adam used by TrainV2. All derivatives come from ClangEnzyme; this class
 // only consumes a gradient vector and performs parameter updates.
-#include <cmath>
-#include <algorithm>
-#include <stdexcept>
-
 template<typename Sample>
 class Adam
 {
-    std::vector<double> m_, v_;
-    int steps_ = 0;
-    double b1_ = .9, b2_ = .999, eps_ = 1e-8;
+	std::vector<Sample> m_, v_;
+	int steps_ = 0;
+
+	Sample lr_;
+	Sample b1_, b2_;
+	Sample eps_ = Sample(1e-8);
+
 public:
-    explicit Adam(int n = 0) : m_(n, 0.), v_(n, 0.) {}
-    void Reset(int n) { m_.assign(n, 0.); v_.assign(n, 0.); steps_ = 0; }
-    // baseLR=0.0004 -> Hammer table and NL 6e-4; delay/APF 1.5e-4;
-    // bridge+board 5e-4. No weight decay, no hammer regularization.
-    void Update(Sample* p, const Sample* grads, int n, Sample baseLR = Sample(.0004),
-                Sample maxNorm = Sample(5))
-    {
-        if ((int)m_.size() != n) Reset(n);
-        double norm2 = 0.;
-        for (int i = 0; i < n; ++i) {
-            //if (!std::isfinite(grads[i])) throw std::runtime_error("Nonfinite Enzyme gradient");
-            norm2 += double(grads[i])*grads[i];
-        }
-        double clip = std::min(1., double(maxNorm)/std::sqrt(norm2 + 1e-30));
-        ++steps_;
-        double c1 = 1. - std::pow(b1_, steps_), c2 = 1. - std::pow(b2_, steps_);
-        constexpr int strings = 3, hammerTable = 512, hammer = 580;
-        constexpr int perString = 653; // 512 + 68 NL + 1 delay + 4 APF + 3*17 bridge + 17 board
-        static_assert(perString * strings == 1959, "PianoDWG-v1.3fix expects original parameter layout");
-        for (int i = 0; i < n; ++i) {
-            int local = i % perString;
-            double mul = local < hammerTable ? 1.5 :
-                         local < hammer ? 1.5 :
-                         local < hammer + 5 ? .375 : 1.25;
-            double g = grads[i] * clip;
-            m_[i] = b1_*m_[i] + (1.-b1_)*g;
-            v_[i] = b2_*v_[i] + (1.-b2_)*g*g;
-            p[i] = Sample(double(p[i]) - double(baseLR)*mul*(m_[i]/c1)/(std::sqrt(v_[i]/c2)+eps_));
-        }
-    }
+	Adam(Sample lr = Sample(.001), Sample b1 = Sample(.9), Sample b2 = Sample(.999)) : lr_(lr), b1_(b1), b2_(b2) {}
+
+	void Reset(int n)
+	{
+		m_.assign(n, Sample(0));
+		v_.assign(n, Sample(0));
+		steps_ = 0;
+	}
+
+	Sample Update(Sample* params, Sample* grads, int numParams, Sample loss)
+	{
+		if ((int)m_.size() != numParams) Reset(numParams);
+		++steps_;
+		const Sample c1 = Sample(1) - Sample(std::pow(double(b1_), steps_));
+		const Sample c2 = Sample(1) - Sample(std::pow(double(b2_), steps_));
+		const Sample oneMinusB1 = Sample(1) - b1_;
+		const Sample oneMinusB2 = Sample(1) - b2_;
+		for (int i = 0; i < numParams; ++i)
+		{
+			const Sample g = grads[i];
+			m_[i] = b1_ * m_[i] + oneMinusB1 * g;
+			v_[i] = b2_ * v_[i] + oneMinusB2 * g * g;
+			const Sample mhat = m_[i] / c1;
+			const Sample vhat = v_[i] / c2;
+			params[i] -= lr_ * mhat / (Sample(std::sqrt(double(vhat))) + eps_);
+		}
+		return loss;
+	}
 };

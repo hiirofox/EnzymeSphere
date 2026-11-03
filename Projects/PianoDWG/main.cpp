@@ -12,8 +12,7 @@ std::string root = "D:/Projects/c++/EnzymeSphere/test/";
 // Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
 // to preserve the original AdamW + Train::LossSTFT training path.
 
-AdamW<float> opt(0.0001, 0.01, 0.9, 0.999);
-
+Adam<float> optV2(.0005, .9, .999);
 WavReader wr;
 WavWriter ww;
 
@@ -22,7 +21,7 @@ std::vector<float> target;
 std::vector<float> tmp;
 
 constexpr static int NumParams = PianoDWG::PianoWaveguide<float>::NumParams;
-Adam<float> optV2(NumParams);
+
 float params[NumParams];
 float grads[NumParams];
 
@@ -101,7 +100,7 @@ int main()
 {
 	tui.Create();
 
-	wr.OpenWAV(root + "C4.wav");
+	wr.OpenWAV(root + "C4-22050.wav");
 	numSamples = (int)wr.GetNumSamples();
 	target.resize(numSamples);
 	wr.ReadBlock(target.data(), target.data(), numSamples);
@@ -144,10 +143,9 @@ int main()
 		{
 			tui.UpdateAndRepaint(params, NumParams);
 		}
-		optV2.Update(params, grads, NumParams, 0.0004f, 5.f);
-		float lr = 0.0004f;
+		optV2.Update(params, grads, NumParams, loss);
 		float losg = 0.;
 		for (int i = 0; i < NumParams; ++i)losg += grads[i] * grads[i];
-		printf("iter:%d loss=%f losg=%f lr=%f\n", iter, loss, losg, lr);
+		printf("iter:%d loss=%f losg=%f\n", iter, loss, losg);
 	}
 }

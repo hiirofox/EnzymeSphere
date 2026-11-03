@@ -630,8 +630,8 @@ namespace PianoDWG
 				Sample* p = base + i * stride;
 				// Target-head alignment accounts for the initial delay and APF phase response.
 				// C3 / 22050 Hz: 170 samples instead of the previously assumed 155.
-				constexpr int TargetHeadOffset = 170;
-				constexpr int ReturnSamples = 167;
+				constexpr int TargetHeadOffset = 0;
+				constexpr int ReturnSamples = 0;
 				for (int j = 0; j < Hammer::TableSize; ++j)
 				{
 					if (target && numSamples > j + TargetHeadOffset)
@@ -645,7 +645,7 @@ namespace PianoDWG
 				//for (int j = 0; j < Disperser::NumParams; ++j)
 				//	p[Hammer::NumParams + 1 + j] = Sample(-.52);
 				//应用基频色散估计结果
-				p[Hammer::NumParams] = zm + (Sample)(i - 1) * .12;//delay z^-m
+				p[Hammer::NumParams] = zm + (Sample)(i - 1) * 0.5;//delay z^-m
 				for (int j = 0; j < Disperser::NumParams; ++j)
 					p[Hammer::NumParams + 1 + j] = ks[j];//disperser
 
@@ -654,7 +654,7 @@ namespace PianoDWG
 				{
 					Sample* bp = p + bridges + j * Bridge::NumParams;
 					for (int k = 0; k < Bridge::NumParams; ++k) bp[k] = Sample(0);
-					bp[Bridge::NumParams - 1] = (i == j) ? Sample(2.96) : Sample(-.006) + ((float)rand() / RAND_MAX * .01 + (rand() % 2 ? 1 : -1));//对角大，非对角小
+					bp[Bridge::NumParams - 1] = (i == j) ? Sample(2.999) : Sample(-.006);//对角大，非对角小
 				}
 			}
 			VecToParams(base);
@@ -1283,7 +1283,7 @@ namespace PianoDWG
 			int preparedSamples = 0;
 			int preparedInputSamples = 0;
 			int preparedOnsetOverride = -1;
-			int onsetOverride = -1;
+			int onsetOverride = 0;
 
 			void InvalidateTarget()
 			{

@@ -369,7 +369,7 @@ inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, i
 	float mkbestparams[4];
 	float mkbestloss = 9999999999.;
 	float mkgrads[4];
-	for (int iter = 0; iter < 2000; ++iter)
+	for (int iter = 0; iter < 1000; ++iter)
 	{
 		float loss = gradientMK(mkparams, mkgrads, 4, dispFreqs, NumDispFreqs);
 		float lr = optmk.Update(mkparams, mkgrads, 4, loss);
@@ -384,7 +384,7 @@ inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, i
 			mkbestloss = loss;
 			for (int i = 0; i < 4; ++i)mkbestparams[i] = mkparams[i];
 		}
-		printf("iter:%d loss:%.5f\n", iter, loss);
+		//printf("iter:%d loss:%.5f\n", iter, loss);
 	}
 	float estim = OptimizeMK::m_lockf0(dispFreqs[0], mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
 	printf("m:%f,k={%f, %f, %f, %f}\n", estim, mkbestparams[0], mkbestparams[1], mkbestparams[2], mkbestparams[3]);
