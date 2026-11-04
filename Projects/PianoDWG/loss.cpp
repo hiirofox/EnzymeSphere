@@ -67,8 +67,10 @@ static void renderV2_AD(float* params, float* audio, int numSamples)
 
 void lossV2(float* params, float* lossOut, int numParams, float* target, int numSamples)
 {
-	*lossOut = std::get<0>(PianoDWG::TrainV2::Loss(
-		params, numParams, target, numSamples, instanceV2, dataV2));
+	auto [totalLoss, sc, logMagnitude, harmonicEnvelope, ripple, modulation,
+		attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming] =
+		PianoDWG::TrainV2::Loss(params, numParams, target, numSamples, instanceV2, dataV2);
+	*lossOut = totalLoss;
 }
 
 float gradientV2(const float* params, float* grad, int numParams,
@@ -95,6 +97,12 @@ float gradientV2(const float* params, float* grad, int numParams,
 		enzyme_dup, dataV2.components.data(), dataV2.componentsGradient.data(),
 		enzyme_dup, dataV2.work.data(), dataV2.workGradient.data(),
 		enzyme_const, &dataV2.cache);
+
+	//auto [total, sc, logMagnitude, harmonicEnvelope, ripple, modulation,
+	//	attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming] = dataV2.components;
+	//printf("gradientV2: total=%.5f sc=%.5f logMagnitude=%.5f harmonicEnvelope=%.5f ripple=%.5f modulation=%.5f attackBandSC=%.5f attackWave=%.5f shortRms=%.5f highBandFlux=%.5f positiveSlope=%.5f energyTiming=%.5f\n",
+	//	total, sc, logMagnitude, harmonicEnvelope, ripple, modulation,
+	//	attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming);
 
 	// Pass 2: Enzyme differentiates the original renderer through persistent instanceV2.
 	__enzyme_autodiff(

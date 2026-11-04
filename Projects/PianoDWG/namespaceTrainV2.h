@@ -636,10 +636,15 @@ namespace TrainV2 {
 		}
 		energyTiming /= c.end;
 
+		attackWave = 0.;//ÂèµÄaiÐ´µÃÒ»Ûç¹·Êº
+
 		const double total = sc + 0.1 * logMagnitude + 0.2 * harmonicEnvelope +
 			0.25 * ripple + 0.3 * modulation + 0.6 * attackBandSC +
 			0.7 * attackWave + 0.4 * shortRms + 0.25 * highBandFlux +
 			0.2 * positiveSlope + 0.1 * energyTiming;
+
+		//printf("total:%.5f sc:%.5f logMagnitude:%.5f harmonicEnvelope:%.5f ripple:%.5f modulation:%.5f attackBandSC:%.5f attackWave:%.5f shortRms:%.5f highBandFlux:%.5f positiveSlope:%.5f energyTiming:%.5f\n",
+		//	total, sc, logMagnitude, harmonicEnvelope, ripple, modulation, attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming);
 
 		components[0] = float(total);
 		components[1] = float(sc);

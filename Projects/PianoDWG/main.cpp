@@ -8,8 +8,8 @@
 #include "ui.h"
 #include "estimationDelayK.h"
 
-std::string root = "D:/Projects/c++/EnzymeSphere/test/";
-std::string targetfile = "C96-22050";//.wav
+std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
+std::string targetfile = "032Ab";//.wav
 
 // Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
 // to preserve the original AdamW + Train::LossSTFT training path.
@@ -100,9 +100,11 @@ int NumDispFreqs = DispFreqCapacity;
 float dispFreqs[DispFreqCapacity]{};
 
 TrainStateUI tui;
-int main()
+int main(int argc, char* argv[])
 {
-	tui.Create();
+	//tui.Create();
+	if (argc > 1) targetfile = argv[1];
+	else return 0;
 
 	wr.OpenWAV(root + targetfile + ".wav");
 	numSamples = (int)wr.GetNumSamples();
@@ -112,7 +114,7 @@ int main()
 	if (numSamples <= 0) return 1;
 
 	EstimationDelayK(target.data(), numSamples, dispFreqs, NumDispFreqs);
-	tui.UpdateTarget(target.data(), numSamples, dispFreqs, NumDispFreqs);
+	//tui.UpdateTarget(target.data(), numSamples, dispFreqs, NumDispFreqs);
 
 	//»ùÆµÉ«É¢¹À¼Æ
 	//mkEstim();
@@ -126,7 +128,7 @@ int main()
 	trainTarget.resize(tCompensate, 0.);
 	trainTarget.insert(trainTarget.end(), target.begin(), target.end());
 
-	for (int iter = 0, haveBest = 0;; ++iter)
+	for (int iter = 0, haveBest = 0; iter <= 500; ++iter)
 	{
 		float loss = gradientV2(params, grads, NumParams, trainTarget.data(), trainTarget.size());
 		MaskGradients(grads, -1);
@@ -144,15 +146,16 @@ int main()
 		}
 		if (iter % 100 == 0)
 		{
-			RenderNow();
+			//RenderNow();
 		}
 		if (iter % 5 == 0)
 		{
-			tui.UpdateAndRepaint(params, NumParams);
+			//tui.UpdateAndRepaint(params, NumParams);
 		}
 		optV2.Update(params, grads, NumParams, loss);
 		float losg = 0.;
 		for (int i = 0; i < NumParams; ++i)losg += grads[i] * grads[i];
-		printf("iter:%d loss=%f losg=%f\n", iter, loss, losg);
+		printf("%s | iter:%d loss=%f losg=%f\n", targetfile.c_str(), iter, loss, losg);
 	}
+	return 1;
 }

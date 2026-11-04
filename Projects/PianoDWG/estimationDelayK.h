@@ -11,416 +11,644 @@
 #include <limits>
 #include <vector>
 
-namespace estimation_delay_k_detail
-{
-	static const double kPi = 3.141592653589793238462643383279502884;
-	static const double kTwoPi = 2.0 * kPi;
-	static const double kDefaultInitialB = 1.2e-4;
-	static const int kPianoModelFitPartials = 20;
-	static const int kMaxMeasuredPartials = 200;
-	static const double kMaxModelFrequency = 10000.0;
-	static const double kSoftL1Scale = 0.15;
-	inline bool IsFinite(double x) { return std::isfinite(x) != 0; }
-	inline int NextPowerOfTwo(int n)
-	{
-		int p = 1;
-		while (p < n && p > 0 && p <= (std::numeric_limits<int>::max)() / 2)
-			p <<= 1;
-		return p;
+
+
+
+namespace EstimationOvertone {
+
+
+	struct Peak {
+		double frequency;
+		double amplitude;
+	};
+
+	struct Match {
+		int harmonic;
+		double frequency;
+		double amplitude;
+	};
+
+	struct Candidate {
+		bool valid;
+		double score;
+		double fundamental;
+		double inharmonicity;
+		int prefixCount;
+		std::vector<Match> matches;
+		Candidate() : valid(false), score(-1.0e100), fundamental(0.0),
+			inharmonicity(0.0), prefixCount(0) {
+		}
+	};
+
+	struct YinResult {
+		bool valid;
+		double frequency;
+		double cmnd;
+		std::vector<double> cmndValues;
+		int frameLength;
+		YinResult() : valid(false), frequency(0.0), cmnd(1.0), frameLength(0) {}
+	};
+
+	static inline std::size_t NextPowerOfTwo(std::size_t x) {
+		std::size_t n = 1;
+		while (n < x) n <<= 1;
+		return n;
 	}
-	inline void FFT(std::vector<std::complex<double> >& a)
-	{
+
+	static inline void FFT(std::vector<std::complex<double> >& a, bool inverse) {
 		const std::size_t n = a.size();
-		for (std::size_t i = 1, j = 0; i < n; ++i)
-		{
+		for (std::size_t i = 1, j = 0; i < n; ++i) {
 			std::size_t bit = n >> 1;
 			for (; j & bit; bit >>= 1) j ^= bit;
 			j ^= bit;
 			if (i < j) std::swap(a[i], a[j]);
 		}
-		for (std::size_t len = 2; len <= n; len <<= 1)
-		{
-			const double angle = -kTwoPi / static_cast<double>(len);
-			const std::complex<double> wlen(std::cos(angle), std::sin(angle));
-			for (std::size_t i = 0; i < n; i += len)
-			{
+
+		const double pi = 3.1415926535897932384626433832795;
+		for (std::size_t len = 2; len <= n; len <<= 1) {
+			const double angle = (inverse ? 2.0 : -2.0) * pi /
+				static_cast<double>(len);
+			const std::complex<double> wLen(std::cos(angle), std::sin(angle));
+			for (std::size_t i = 0; i < n; i += len) {
 				std::complex<double> w(1.0, 0.0);
 				const std::size_t half = len >> 1;
-				for (std::size_t j = 0; j < half; ++j)
-				{
+				for (std::size_t j = 0; j < half; ++j) {
 					const std::complex<double> u = a[i + j];
 					const std::complex<double> v = a[i + j + half] * w;
 					a[i + j] = u + v;
 					a[i + j + half] = u - v;
-					w *= wlen;
-				}
-			}
-			if (len > n / 2) break;
-		}
-	}
-	inline double InterpolatedPeakFrequency(const std::vector<double>& mag, int bin, double sampleRate, int nfft)
-	{
-		if (bin <= 0 || bin >= static_cast<int>(mag.size()) - 1)
-			return static_cast<double>(bin) * sampleRate / nfft;
-		const double left = mag[static_cast<std::size_t>(bin - 1)];
-		const double center = mag[static_cast<std::size_t>(bin)];
-		const double right = mag[static_cast<std::size_t>(bin + 1)];
-		const double denom = left - 2.0 * center + right;
-		const double offset = (denom == 0.0) ? 0.0 : 0.5 * (left - right) / denom;
-		return (static_cast<double>(bin) + offset) * sampleRate / nfft;
-	}
-	inline bool FindPeakInRange(const std::vector<double>& mag, double lowHz, double highHz, double sampleRate, int nfft, double& peakHz, double* peakMagnitude = 0)
-	{
-		if (!(sampleRate > 0.0) || !(highHz >= lowHz) || mag.empty()) return false;
-		int first = static_cast<int>(std::ceil(lowHz * nfft / sampleRate));
-		int last = static_cast<int>(std::floor(highHz * nfft / sampleRate));
-		first = (std::max)(0, first);
-		last = (std::min)(static_cast<int>(mag.size()) - 1, last);
-		if (first > last) return false;
-		int best = first;
-		for (int i = first + 1; i <= last; ++i)
-			if (mag[static_cast<std::size_t>(i)] > mag[static_cast<std::size_t>(best)])
-				best = i;
-		peakHz = InterpolatedPeakFrequency(mag, best, sampleRate, nfft);
-		if (peakMagnitude) *peakMagnitude = mag[static_cast<std::size_t>(best)];
-		return IsFinite(peakHz);
-	}
-	inline bool EstimateFundamental(const std::vector<double>& mag, double sampleRate, int nfft, double& f1, double& initialB)
-	{
-		if (mag.size() < 4 || !(sampleRate > 0.0) || nfft <= 0) return false;
-		double maxMagnitude = 0.0;
-		for (std::size_t i = 0; i < mag.size(); ++i) maxMagnitude = (std::max)(maxMagnitude, mag[i]);
-		if (!(maxMagnitude > 0.0)) return false;
-		const double nyquist = 0.5 * sampleRate;
-		const double binHz = sampleRate / static_cast<double>(nfft);
-		const int firstBin = (std::max)(1, static_cast<int>(std::ceil(20.0 / binHz)));
-		const int lastBin = (std::min)(static_cast<int>(mag.size()) - 2, static_cast<int>(std::floor(nyquist / binHz)));
-		std::vector<int> peakBins;
-		for (int i = firstBin; i <= lastBin; ++i)
-		{
-			const double v = mag[static_cast<std::size_t>(i)];
-			if (v >= maxMagnitude * 1.0e-5 && v >= mag[static_cast<std::size_t>(i - 1)] && v >= mag[static_cast<std::size_t>(i + 1)]) peakBins.push_back(i);
-		}
-		if (peakBins.empty()) return false;
-		std::sort(peakBins.begin(), peakBins.end(), [&mag](int a, int b) { return mag[static_cast<std::size_t>(a)] > mag[static_cast<std::size_t>(b)]; });
-		if (peakBins.size() > 96) peakBins.resize(96);
-		static const double bSeeds[] = { 0.0, 5.0e-5, 1.0e-4, 1.5e-4, 2.5e-4, 4.0e-4, 5.0e-4, 7.0e-4, 1.0e-3, 1.25e-3, 1.5e-3, 2.0e-3, 2.5e-3, 3.0e-3, 4.0e-3, 5.0e-3, 7.5e-3, 1.0e-2 };
-		double bestScore = -1.0;
-		double bestF1 = 0.0;
-		double bestB = kDefaultInitialB;
-		for (std::size_t p = 0; p < peakBins.size(); ++p)
-		{
-			const double peakHz = InterpolatedPeakFrequency(mag, peakBins[p], sampleRate, nfft);
-			const int maxHarmonic = (std::min)(200, static_cast<int>(peakHz / 20.0));
-			for (int harmonic = 1; harmonic <= maxHarmonic; ++harmonic)
-			{
-				const double hh = static_cast<double>(harmonic);
-				for (std::size_t bi = 0; bi < sizeof(bSeeds) / sizeof(bSeeds[0]); ++bi)
-				{
-					const double seedB = bSeeds[bi];
-					const double candidateF1 = peakHz / (hh * std::sqrt((1.0 + seedB * hh * hh) / (1.0 + seedB)));
-					if (candidateF1 < 20.0 || candidateF1 > 5000.0) continue;
-					const int possible = (std::min)(kPianoModelFitPartials, static_cast<int>((nyquist - 1.0) / candidateF1));
-					if (possible <= 0) continue;
-					double weightedScore = 0.0;
-					double totalWeight = 0.0;
-					double fundamentalMagnitude = 0.0;
-					int hits = 0;
-					for (int n = 1; n <= possible; ++n)
-					{
-						const double nn = static_cast<double>(n);
-						const double weight = 1.0 / nn;
-						const double predicted = nn * candidateF1 * std::sqrt((1.0 + seedB * nn * nn) / (1.0 + seedB));
-						const double tolerance = (std::max)(3.0 * binHz, 0.003 * predicted);
-						totalWeight += weight;
-						double foundHz = 0.0;
-						double amplitude = 0.0;
-						if (FindPeakInRange(mag, predicted - tolerance, predicted + tolerance, sampleRate, nfft, foundHz, &amplitude) && amplitude >= maxMagnitude * 1.0e-3)
-						{
-							const double error = std::fabs(foundHz - predicted) / tolerance;
-							const double frequencyScore = std::exp(-0.5 * error * error);
-							weightedScore += weight * std::sqrt(amplitude / maxMagnitude) * frequencyScore;
-							++hits;
-							if (n == 1) fundamentalMagnitude = amplitude / maxMagnitude;
-						}
-					}
-					if (hits < 2 && fundamentalMagnitude < 0.15) continue;
-					double score = weightedScore / (totalWeight + 1.0e-12);
-					if (fundamentalMagnitude < 0.15) score *= 0.8;
-					if (score > bestScore || (std::fabs(score - bestScore) <= 1.0e-12 && candidateF1 > bestF1))
-					{
-						bestScore = score;
-						bestF1 = candidateF1;
-						bestB = seedB;
-					}
+					w *= wLen;
 				}
 			}
 		}
-		if (!(bestScore > 0.0) || !(bestF1 >= 20.0) || !IsFinite(bestF1)) return false;
-		for (int pass = 0; pass < 4; ++pass)
-		{
-			double lowerSupport = 0.0;
-			double lowerF1 = 0.0;
-			double lowerB = bestB;
-			for (int divisor = 2; divisor <= 8; ++divisor)
-			{
-				for (std::size_t bi = 0; bi < sizeof(bSeeds) / sizeof(bSeeds[0]); ++bi)
-				{
-					const double subB = bSeeds[bi];
-					const double divisorScale = static_cast<double>(divisor) * std::sqrt((1.0 + subB * divisor * divisor) / (1.0 + subB));
-					const double subF1 = bestF1 / divisorScale;
-					if (subF1 < 20.0 || subF1 >= bestF1) continue;
-					const int possible = (std::min)(24, static_cast<int>((nyquist - 1.0) / subF1));
-					double support = 0.0;
-					int hits = 0;
-					for (int n = 1; n <= possible; ++n)
-					{
-						if (n % divisor == 0) continue;
-						const double nn = static_cast<double>(n);
-						const double predicted = nn * subF1 * std::sqrt((1.0 + subB * nn * nn) / (1.0 + subB));
-						const double tolerance = (std::max)(3.0 * binHz, 0.003 * predicted);
-						double foundHz = 0.0;
-						double amplitude = 0.0;
-						if (FindPeakInRange(mag, predicted - tolerance, predicted + tolerance, sampleRate, nfft, foundHz, &amplitude) && amplitude >= maxMagnitude * 0.05)
-						{
-							const double error = std::fabs(foundHz - predicted) / tolerance;
-							const double frequencyScore = std::exp(-0.5 * error * error);
-							if (frequencyScore >= 0.25)
-							{
-								support += std::sqrt(amplitude / maxMagnitude) * frequencyScore / std::sqrt(nn);
-								++hits;
-							}
-						}
-					}
-					if (hits >= 2 && support > lowerSupport)
-					{
-						lowerSupport = support;
-						lowerF1 = subF1;
-						lowerB = subB;
-					}
-				}
-			}
-			if (lowerSupport < 0.20) break;
-			bestF1 = lowerF1;
-			bestB = lowerB;
+
+		if (inverse) {
+			const double invN = 1.0 / static_cast<double>(n);
+			for (std::size_t i = 0; i < n; ++i) a[i] *= invN;
 		}
-		f1 = bestF1;
-		initialB = bestB;
-		return IsFinite(f1) && f1 >= 20.0 && IsFinite(initialB) && initialB >= 0.0;
 	}
-	inline double PianoFitCost(double a, double b, const std::vector<double>& observed, double f1)
-	{
-		double cost = 0.0;
-		const int fitCount = (std::min)(kPianoModelFitPartials, static_cast<int>(observed.size()));
-		for (int n = 1; n <= fitCount; ++n)
-		{
-			const double measured = observed[static_cast<std::size_t>(n - 1)];
-			if (!(measured > 0.0)) continue;
-			const double nn = static_cast<double>(n);
-			const double s = std::sqrt(1.0 + b * 1.0e-4 * nn * nn);
-			const double r = f1 * a * s - measured / nn;
-			const double x = r / kSoftL1Scale;
-			cost += 2.0 * kSoftL1Scale * kSoftL1Scale * (std::sqrt(1.0 + x * x) - 1.0);
+
+	static inline int AnalysisStart(int numSamples, double sampleRate) {
+		if (numSamples <= 1) return 0;
+		const int preferred = static_cast<int>(std::floor(sampleRate * 0.01));
+		return std::max(0, std::min(preferred, numSamples / 20));
+	}
+
+	static inline YinResult EstimateYin(const float* target, int numSamples,
+		double sampleRate) {
+		YinResult result;
+		const int start = AnalysisStart(numSamples, sampleRate);
+		const int available = numSamples - start;
+		const int frameLength = std::min(available,
+			std::max(64, static_cast<int>(std::floor(sampleRate * 0.40))));
+		if (frameLength < 64) return result;
+
+		std::vector<double> x(static_cast<std::size_t>(frameLength), 0.0);
+		double mean = 0.0;
+		for (int i = 0; i < frameLength; ++i) {
+			const double v = std::isfinite(target[start + i]) ? target[start + i] : 0.0;
+			x[static_cast<std::size_t>(i)] = v;
+			mean += v;
 		}
-		return cost;
-	}
-	inline bool FitPianoF0B(const std::vector<double>& observed, double f1, double& F0, double& B, double initialB)
-	{
-		const int fitCount = (std::min)(kPianoModelFitPartials, static_cast<int>(observed.size()));
-		int validCount = 0;
-		for (int n = 0; n < fitCount; ++n) if (observed[static_cast<std::size_t>(n)] > 0.0) ++validCount;
-		if (validCount < 4 || !(f1 > 0.0)) return false;
-		double a = 1.0;
-		double b = (std::max)(0.0, (std::min)(100.0, initialB * 1.0e4));
-		double cost = PianoFitCost(a, b, observed, f1);
-		for (int iter = 0; iter < 100; ++iter)
-		{
-			double h00 = 0.0, h01 = 0.0, h11 = 0.0;
-			double g0 = 0.0, g1 = 0.0;
-			for (int n = 1; n <= fitCount; ++n)
-			{
-				const double measured = observed[static_cast<std::size_t>(n - 1)];
-				if (!(measured > 0.0)) continue;
-				const double nn = static_cast<double>(n);
-				const double nn2 = nn * nn;
-				const double s = std::sqrt(1.0 + b * 1.0e-4 * nn2);
-				const double r = f1 * a * s - measured / nn;
-				const double x = r / kSoftL1Scale;
-				const double weight = 1.0 / std::sqrt(1.0 + x * x);
-				const double j0 = f1 * s;
-				const double j1 = f1 * a * (1.0e-4 * nn2) / (2.0 * s);
-				h00 += weight * j0 * j0;
-				h01 += weight * j0 * j1;
-				h11 += weight * j1 * j1;
-				g0 += weight * j0 * r;
-				g1 += weight * j1 * r;
+		mean /= static_cast<double>(frameLength);
+
+		double totalEnergy = 0.0;
+		for (int i = 0; i < frameLength; ++i) {
+			x[static_cast<std::size_t>(i)] -= mean;
+			totalEnergy += x[static_cast<std::size_t>(i)] * x[static_cast<std::size_t>(i)];
+		}
+		if (totalEnergy < 1.0e-18) return result;
+
+		const std::size_t fftSize = NextPowerOfTwo(static_cast<std::size_t>(frameLength) * 2);
+		std::vector<std::complex<double> > spectrum(fftSize, std::complex<double>(0.0, 0.0));
+		for (int i = 0; i < frameLength; ++i) {
+			spectrum[static_cast<std::size_t>(i)] =
+				std::complex<double>(x[static_cast<std::size_t>(i)], 0.0);
+		}
+		FFT(spectrum, false);
+		for (std::size_t i = 0; i < fftSize; ++i) {
+			const double re = spectrum[i].real();
+			const double im = spectrum[i].imag();
+			spectrum[i] = std::complex<double>(re * re + im * im, 0.0);
+		}
+		FFT(spectrum, true);
+
+		std::vector<double> prefixEnergy(static_cast<std::size_t>(frameLength) + 1, 0.0);
+		for (int i = 0; i < frameLength; ++i) {
+			prefixEnergy[static_cast<std::size_t>(i + 1)] =
+				prefixEnergy[static_cast<std::size_t>(i)] +
+				x[static_cast<std::size_t>(i)] * x[static_cast<std::size_t>(i)];
+		}
+
+		const int maxLag = std::min(frameLength / 2,
+			std::max(3, static_cast<int>(std::floor(sampleRate / 15.0))));
+		if (maxLag < 4) return result;
+
+		std::vector<double> difference(static_cast<std::size_t>(maxLag) + 1, 0.0);
+		std::vector<double> cmnd(static_cast<std::size_t>(maxLag) + 1, 1.0);
+		double running = 0.0;
+		for (int tau = 1; tau <= maxLag; ++tau) {
+			const double e1 = prefixEnergy[static_cast<std::size_t>(frameLength - tau)];
+			const double e2 = prefixEnergy[static_cast<std::size_t>(frameLength)] -
+				prefixEnergy[static_cast<std::size_t>(tau)];
+			const double corr = spectrum[static_cast<std::size_t>(tau)].real();
+			double d = e1 + e2 - 2.0 * corr;
+			if (d < 0.0) d = 0.0;
+			difference[static_cast<std::size_t>(tau)] = d;
+			running += d;
+			if (running > 1.0e-20) {
+				cmnd[static_cast<std::size_t>(tau)] = d *
+					static_cast<double>(tau) / running;
 			}
-			const double det = h00 * h11 - h01 * h01;
-			if (!(det > 1.0e-24) || !IsFinite(det)) break;
-			const double da = (-g0 * h11 + g1 * h01) / det;
-			const double db = (-g1 * h00 + g0 * h01) / det;
-			if (!IsFinite(da) || !IsFinite(db)) break;
-			bool accepted = false;
-			double scale = 1.0;
-			for (int ls = 0; ls < 24; ++ls)
-			{
-				const double trialA = (std::max)(0.9, (std::min)(1.1, a + scale * da));
-				const double trialB = (std::max)(0.0, (std::min)(100.0, b + scale * db));
-				const double trialCost = PianoFitCost(trialA, trialB, observed, f1);
-				if (trialCost < cost)
-				{
-					a = trialA;
-					b = trialB;
-					cost = trialCost;
-					accepted = true;
-					if (std::fabs(scale * da) < 1.0e-11 && std::fabs(scale * db) < 1.0e-9) iter = 100;
+		}
+
+		int selectedLag = -1;
+		int firstLocalMinimum = -1;
+		for (int tau = 3; tau < maxLag; ++tau) {
+			const double left = cmnd[static_cast<std::size_t>(tau - 1)];
+			const double center = cmnd[static_cast<std::size_t>(tau)];
+			const double right = cmnd[static_cast<std::size_t>(tau + 1)];
+			if (center <= left && center < right) {
+				if (firstLocalMinimum < 0) firstLocalMinimum = tau;
+				if (center < 0.15) {
+					selectedLag = tau;
 					break;
 				}
-				scale *= 0.5;
 			}
-			if (!accepted) break;
 		}
-		F0 = f1 * a;
-		B = b * 1.0e-4;
-		return IsFinite(F0) && IsFinite(B) && F0 > 0.0 && B >= 0.0;
+		if (selectedLag < 0) selectedLag = firstLocalMinimum;
+		if (selectedLag < 0) {
+			selectedLag = 2;
+			for (int tau = 3; tau <= maxLag; ++tau) {
+				if (cmnd[static_cast<std::size_t>(tau)] <
+					cmnd[static_cast<std::size_t>(selectedLag)]) selectedLag = tau;
+			}
+		}
+
+		double refinedLag = static_cast<double>(selectedLag);
+		if (selectedLag > 1 && selectedLag < maxLag) {
+			const double a = cmnd[static_cast<std::size_t>(selectedLag - 1)];
+			const double b = cmnd[static_cast<std::size_t>(selectedLag)];
+			const double c = cmnd[static_cast<std::size_t>(selectedLag + 1)];
+			const double denominator = a - 2.0 * b + c;
+			if (std::fabs(denominator) > 1.0e-15) {
+				const double shift = 0.5 * (a - c) / denominator;
+				refinedLag += std::max(-0.5, std::min(0.5, shift));
+			}
+		}
+		if (refinedLag <= 0.0) return result;
+
+		result.valid = true;
+		result.frequency = sampleRate / refinedLag;
+		result.cmnd = cmnd[static_cast<std::size_t>(selectedLag)];
+		result.cmndValues.swap(cmnd);
+		result.frameLength = frameLength;
+		return result;
 	}
-	inline bool EstimatePianoPartials(const float* target, int numSamples, double sampleRate, std::vector<double>& measuredPartials, std::vector<double>& modelPartials, double& f1, double& F0, double& B)
-	{
-		if (!target || numSamples <= 0 || !(sampleRate > 0.0)) return false;
-		const int frame = static_cast<int>(0.020 * sampleRate);
-		const int hop = static_cast<int>(0.005 * sampleRate);
-		if (frame <= 0 || hop <= 0 || numSamples < frame) return false;
-		double maxRms = 0.0;
-		double onsetTime = 0.0;
-		bool onsetFound = false;
-		for (int first = 0; first <= numSamples - frame; first += hop)
-		{
-			double sum = 0.0;
-			for (int n = 0; n < frame; ++n)
-			{
-				const double x = target[first + n];
-				sum += x * x;
-			}
-			const double rms = std::sqrt(sum / frame);
-			if (rms > maxRms) maxRms = rms;
+
+	static inline bool BuildSpectrum(const float* target, int numSamples,
+		double sampleRate, double seconds,
+		std::vector<Peak>& peaks,
+		double& maxPeakAmplitude) {
+		peaks.clear();
+		maxPeakAmplitude = 0.0;
+		const int start = AnalysisStart(numSamples, sampleRate);
+		const int available = numSamples - start;
+		const int frameLength = std::min(available,
+			std::max(64, static_cast<int>(std::floor(sampleRate * seconds))));
+		if (frameLength < 64) return false;
+
+		std::vector<double> frame(static_cast<std::size_t>(frameLength), 0.0);
+		double mean = 0.0;
+		for (int i = 0; i < frameLength; ++i) {
+			const double v = std::isfinite(target[start + i]) ? target[start + i] : 0.0;
+			frame[static_cast<std::size_t>(i)] = v;
+			mean += v;
 		}
-		if (!(maxRms > 0.0)) return false;
-		for (int first = 0; first <= numSamples - frame; first += hop)
-		{
-			double sum = 0.0;
-			for (int n = 0; n < frame; ++n)
-			{
-				const double x = target[first + n];
-				sum += x * x;
+		mean /= static_cast<double>(frameLength);
+
+		const std::size_t fftSize = NextPowerOfTwo(
+			std::max<std::size_t>(131072, static_cast<std::size_t>(frameLength)));
+		std::vector<std::complex<double> > spectrum(fftSize, std::complex<double>(0.0, 0.0));
+		const double twoPi = 6.283185307179586476925286766559;
+		for (int i = 0; i < frameLength; ++i) {
+			const double w = (frameLength > 1)
+				? 0.5 - 0.5 * std::cos(twoPi * static_cast<double>(i) /
+					static_cast<double>(frameLength - 1))
+				: 1.0;
+			const double v = (frame[static_cast<std::size_t>(i)] - mean) * w;
+			spectrum[static_cast<std::size_t>(i)] = std::complex<double>(v, 0.0);
+		}
+		FFT(spectrum, false);
+
+		const std::size_t half = fftSize / 2;
+		std::vector<double> magnitude(half + 1, 0.0);
+		double globalMax = 0.0;
+		for (std::size_t k = 0; k <= half; ++k) {
+			const double re = spectrum[k].real();
+			const double im = spectrum[k].imag();
+			const double a = std::sqrt(re * re + im * im);
+			magnitude[k] = a;
+			if (a > globalMax) globalMax = a;
+		}
+		if (globalMax <= 1.0e-15) return false;
+
+		const double binHz = sampleRate / static_cast<double>(fftSize);
+		const double minPeakAmplitude = globalMax * 0.0003;
+		for (std::size_t k = 2; k < half; ++k) {
+			const double a = magnitude[k];
+			if (a < minPeakAmplitude || a < magnitude[k - 1] || a <= magnitude[k + 1]) {
+				continue;
 			}
-			const double rms = std::sqrt(sum / frame);
-			if (rms >= 0.20 * maxRms)
-			{
-				onsetTime = (static_cast<double>(first) + 0.5 * frame) / sampleRate;
-				onsetFound = true;
+			const double frequency = static_cast<double>(k) * binHz;
+			if (frequency < 15.0 || frequency >= sampleRate * 0.5) continue;
+
+			const double y0 = std::log(std::max(1.0e-20, magnitude[k - 1]));
+			const double y1 = std::log(std::max(1.0e-20, magnitude[k]));
+			const double y2 = std::log(std::max(1.0e-20, magnitude[k + 1]));
+			const double denominator = y0 - 2.0 * y1 + y2;
+			double delta = 0.0;
+			if (std::fabs(denominator) > 1.0e-15) {
+				delta = 0.5 * (y0 - y2) / denominator;
+				delta = std::max(-0.5, std::min(0.5, delta));
+			}
+			const double refinedFrequency = (static_cast<double>(k) + delta) * binHz;
+			const double refinedAmplitude = a *
+				std::exp(0.25 * (y0 - y2) * delta);
+			Peak p;
+			p.frequency = refinedFrequency;
+			p.amplitude = refinedAmplitude;
+			peaks.push_back(p);
+		}
+
+		if (peaks.empty()) return false;
+		if (peaks.size() > 4096) {
+			std::partial_sort(peaks.begin(), peaks.begin() + 4096, peaks.end(),
+				[](const Peak& a, const Peak& b) { return a.amplitude > b.amplitude; });
+			peaks.resize(4096);
+		}
+		std::sort(peaks.begin(), peaks.end(),
+			[](const Peak& a, const Peak& b) { return a.frequency < b.frequency; });
+
+		for (std::size_t i = 0; i < peaks.size(); ++i) {
+			if (peaks[i].amplitude > maxPeakAmplitude) {
+				maxPeakAmplitude = peaks[i].amplitude;
+			}
+		}
+		return maxPeakAmplitude > 1.0e-15;
+	}
+
+	static inline double FindStrongHighCluster(const std::vector<Peak>& peaks,
+		double maxPeakAmplitude,
+		double yinFrequency,
+		bool& useCluster) {
+		useCluster = false;
+		if (peaks.empty() || maxPeakAmplitude <= 0.0) return 0.0;
+
+		const Peak* strongestHigh = nullptr;
+		for (std::size_t i = 0; i < peaks.size(); ++i) {
+			if (peaks[i].frequency > 2500.0 &&
+				peaks[i].amplitude >= maxPeakAmplitude * 0.20) {
+				if (!strongestHigh || peaks[i].amplitude > strongestHigh->amplitude) {
+					strongestHigh = &peaks[i];
+				}
+			}
+		}
+		if (!strongestHigh) return 0.0;
+
+		bool nearYinPeak = false;
+		const double nearTolerance = std::max(1.0, yinFrequency * 0.05);
+		for (std::size_t i = 0; i < peaks.size(); ++i) {
+			if (std::fabs(peaks[i].frequency - yinFrequency) <= nearTolerance &&
+				peaks[i].amplitude >= maxPeakAmplitude * 0.15) {
+				nearYinPeak = true;
 				break;
 			}
 		}
-		if (!onsetFound) return false;
-		const int start = static_cast<int>((onsetTime + 0.010) * sampleRate);
-		const int minimumLength = static_cast<int>(0.250 * sampleRate);
-		const int maximumLength = static_cast<int>(1.8 * sampleRate);
-		int activeEnd = (std::min)(numSamples, start + minimumLength);
-		for (int first = 0; first <= numSamples - frame; first += hop)
-		{
-			const double centerTime = (static_cast<double>(first) + 0.5 * frame) / sampleRate;
-			if (centerTime < onsetTime) continue;
-			double sum = 0.0;
-			for (int n = 0; n < frame; ++n)
-			{
-				const double x = target[first + n];
-				sum += x * x;
+
+		const bool nearSamePitch =
+			std::fabs(strongestHigh->frequency - yinFrequency) <= yinFrequency * 0.10;
+		if (!nearSamePitch && nearYinPeak) return 0.0;
+
+		double weightedFrequency = 0.0;
+		double weightSum = 0.0;
+		const double clusterRadius = strongestHigh->frequency * 0.012;
+		for (std::size_t i = 0; i < peaks.size(); ++i) {
+			if (peaks[i].frequency > 2500.0 &&
+				peaks[i].amplitude >= maxPeakAmplitude * 0.20 &&
+				std::fabs(peaks[i].frequency - strongestHigh->frequency) <= clusterRadius) {
+				weightedFrequency += peaks[i].frequency * peaks[i].amplitude;
+				weightSum += peaks[i].amplitude;
 			}
-			if (std::sqrt(sum / frame) >= 0.02 * maxRms) activeEnd = (std::min)(numSamples, first + frame);
 		}
-		const int end = (std::min)(numSamples, (std::min)(start + maximumLength, (std::max)(activeEnd, start + minimumLength)));
-		const int segmentLength = end - start;
-		if (start < 0 || segmentLength < 1024) return false;
-		std::vector<double> segment(static_cast<std::size_t>(segmentLength));
-		double mean = 0.0;
-		for (int i = 0; i < segmentLength; ++i)
-		{
-			segment[static_cast<std::size_t>(i)] = target[start + i];
-			mean += segment[static_cast<std::size_t>(i)];
-		}
-		mean /= segmentLength;
-		int nfft = (std::max)(1 << 19, NextPowerOfTwo(segmentLength));
-		if (nfft <= 0) return false;
-		std::vector<std::complex<double> > spectrum(static_cast<std::size_t>(nfft), std::complex<double>(0.0, 0.0));
-		for (int i = 0; i < segmentLength; ++i)
-		{
-			const double hann = (segmentLength <= 1) ? 1.0 : 0.5 - 0.5 * std::cos(kTwoPi * static_cast<double>(i) / (segmentLength - 1));
-			spectrum[static_cast<std::size_t>(i)] = std::complex<double>((segment[static_cast<std::size_t>(i)] - mean) * hann, 0.0);
-		}
-		FFT(spectrum);
-		std::vector<double> magnitude(static_cast<std::size_t>(nfft / 2 + 1));
-		for (int i = 0; i <= nfft / 2; ++i)
-			magnitude[static_cast<std::size_t>(i)] = std::abs(spectrum[static_cast<std::size_t>(i)]);
-		double initialB = kDefaultInitialB;
-		if (!EstimateFundamental(magnitude, sampleRate, nfft, f1, initialB)) return false;
-		std::vector<double> observed;
-		observed.reserve(kMaxMeasuredPartials);
-		const double binHz = sampleRate / static_cast<double>(nfft);
-		double maxMagnitude = 0.0;
-		for (std::size_t i = 0; i < magnitude.size(); ++i) if (magnitude[i] > maxMagnitude) maxMagnitude = magnitude[i];
-		for (int i = 1; i <= kMaxMeasuredPartials; ++i)
-		{
-			const double ii = static_cast<double>(i);
-			const double predicted = ii * f1 * std::sqrt((1.0 + initialB * ii * ii) / (1.0 + initialB));
-			const double halfWidth = (std::max)(6.0 * binHz, (std::min)(0.25 * f1, (std::max)(8.0, 0.006 * predicted)));
-			if (predicted - halfWidth >= 0.5 * sampleRate || predicted + halfWidth >= 0.5 * sampleRate) break;
-			double peak = 0.0;
-			double peakMagnitude = 0.0;
-			if (FindPeakInRange(magnitude, predicted - halfWidth, predicted + halfWidth, sampleRate, nfft, peak, &peakMagnitude) && peakMagnitude > maxMagnitude * 1.0e-5) observed.push_back(peak);
-			else observed.push_back(0.0);
-		}
-		if (observed.size() < 2) return false;
-		std::vector<double> firstFit(observed.begin(), observed.begin() + (std::min)(kPianoModelFitPartials, static_cast<int>(observed.size())));
-		int validFitPartials = 0;
-		for (std::size_t i = 0; i < firstFit.size(); ++i) if (firstFit[i] > 0.0) ++validFitPartials;
-		if (validFitPartials < 4 || !FitPianoF0B(firstFit, f1, F0, B, initialB))
-		{
-			F0 = f1;
-			B = validFitPartials < 4 ? kDefaultInitialB : initialB;
-		}
-		measuredPartials.swap(observed);
-		modelPartials.clear();
-		for (int i = 1; ; ++i)
-		{
-			const double ii = static_cast<double>(i);
-			const double frequency = ii * F0 * std::sqrt(1.0 + B * ii * ii);
-			if (!(frequency <= kMaxModelFrequency)) break;
-			modelPartials.push_back(frequency);
-			if (i > 10000) break;
-		}
-		return !modelPartials.empty() && !measuredPartials.empty();
+		if (weightSum <= 0.0) return 0.0;
+		useCluster = true;
+		return weightedFrequency / weightSum;
 	}
-}
-inline void EstimationDelayK(float* target, int numSamples, float* dispFreqs, int& numDispFreqs, float sampleRate)
-{
-	using namespace estimation_delay_k_detail;
-	const int capacity = numDispFreqs;
-	const float nanValue = (std::numeric_limits<float>::quiet_NaN)();
-	numDispFreqs = 0;
-	if (dispFreqs && capacity > 0) for (int i = 0; i < capacity; ++i) dispFreqs[i] = nanValue;
-	if (!target || !dispFreqs || numSamples <= 0 || capacity <= 0 || !(sampleRate > 0.0f) || !IsFinite(sampleRate)) return;
-	std::vector<double> measuredPartials;
-	std::vector<double> estimatedPartials;
-	double f1 = 0.0, F0 = 0.0, B = 0.0;
-	if (!EstimatePianoPartials(target, numSamples, sampleRate, measuredPartials, estimatedPartials, f1, F0, B)) return;
-	const int outputCount = (std::min)(capacity, static_cast<int>(estimatedPartials.size()));
-	for (int i = 0; i < outputCount; ++i) dispFreqs[i] = static_cast<float>(estimatedPartials[static_cast<std::size_t>(i)]);
-	numDispFreqs = outputCount;
-}
-inline void EstimationDelayK(float* target, int numSamples, float* dispFreqs, int& numDispFreqs)
-{
-	EstimationDelayK(target, numSamples, dispFreqs, numDispFreqs, PianoDWG::SampleRate);
-}
+
+	static inline const Peak* FindStrongestPeakInRange(const std::vector<Peak>& peaks,
+		double lowFrequency,
+		double highFrequency) {
+		std::vector<Peak>::const_iterator first = std::lower_bound(
+			peaks.begin(), peaks.end(), lowFrequency,
+			[](const Peak& p, double f) { return p.frequency < f; });
+		std::vector<Peak>::const_iterator last = std::upper_bound(
+			first, peaks.end(), highFrequency,
+			[](double f, const Peak& p) { return f < p.frequency; });
+		if (first == last) return nullptr;
+		const Peak* strongest = &(*first);
+		for (std::vector<Peak>::const_iterator it = first; it != last; ++it) {
+			if (it->amplitude > strongest->amplitude) strongest = &(*it);
+		}
+		return strongest;
+	}
+
+	static inline void BuildWindowedAutocorrelation(const float* target,
+		int numSamples,
+		double sampleRate,
+		double seconds,
+		std::vector<double>& autocorrelation) {
+		autocorrelation.clear();
+		const int start = AnalysisStart(numSamples, sampleRate);
+		const int available = numSamples - start;
+		const int frameLength = std::min(available,
+			std::max(64, static_cast<int>(std::floor(sampleRate * seconds))));
+		if (frameLength < 64) return;
+
+		std::vector<std::complex<double> > data(
+			NextPowerOfTwo(static_cast<std::size_t>(frameLength) * 2),
+			std::complex<double>(0.0, 0.0));
+		double mean = 0.0;
+		for (int i = 0; i < frameLength; ++i) {
+			const double v = std::isfinite(target[start + i]) ? target[start + i] : 0.0;
+			mean += v;
+		}
+		mean /= static_cast<double>(frameLength);
+		const double twoPi = 6.283185307179586476925286766559;
+		for (int i = 0; i < frameLength; ++i) {
+			const double w = 0.5 - 0.5 * std::cos(twoPi * static_cast<double>(i) /
+				static_cast<double>(frameLength - 1));
+			const double raw = std::isfinite(target[start + i]) ? target[start + i] : 0.0;
+			const double v = (raw - mean) * w;
+			data[static_cast<std::size_t>(i)] = std::complex<double>(v, 0.0);
+		}
+		FFT(data, false);
+		for (std::size_t i = 0; i < data.size(); ++i) {
+			const double re = data[i].real();
+			const double im = data[i].imag();
+			data[i] = std::complex<double>(re * re + im * im, 0.0);
+		}
+		FFT(data, true);
+
+		autocorrelation.resize(static_cast<std::size_t>(frameLength), 0.0);
+		const double zero = data[0].real();
+		if (zero <= 1.0e-20) {
+			autocorrelation.clear();
+			return;
+		}
+		for (int i = 0; i < frameLength; ++i) {
+			autocorrelation[static_cast<std::size_t>(i)] =
+				data[static_cast<std::size_t>(i)].real() / zero;
+		}
+	}
+
+	static inline double AutocorrelationAtFrequency(const std::vector<double>& ac,
+		double sampleRate,
+		double frequency) {
+		if (ac.size() < 4 || frequency <= 0.0) return 0.0;
+		const double lag = sampleRate / frequency;
+		if (lag < 2.0 || lag >= static_cast<double>(ac.size() - 1)) return 0.0;
+		const int i = static_cast<int>(lag);
+		const double frac = lag - static_cast<double>(i);
+		double value = ac[static_cast<std::size_t>(i)] * (1.0 - frac) +
+			ac[static_cast<std::size_t>(i + 1)] * frac;
+		const double correction = static_cast<double>(ac.size()) /
+			(static_cast<double>(ac.size()) - lag);
+		value *= correction;
+		return std::max(-1.0, std::min(1.0, value));
+	}
+
+	static inline double CmndAtFrequency(const YinResult& yin,
+		double sampleRate,
+		double frequency) {
+		if (yin.cmndValues.size() < 3 || frequency <= 0.0) return 1.0;
+		const double lag = sampleRate / frequency;
+		if (lag < 1.0 || lag >= static_cast<double>(yin.cmndValues.size() - 1)) return 1.0;
+		const int i = static_cast<int>(lag);
+		const double frac = lag - static_cast<double>(i);
+		return yin.cmndValues[static_cast<std::size_t>(i)] * (1.0 - frac) +
+			yin.cmndValues[static_cast<std::size_t>(i + 1)] * frac;
+	}
+
+
+	inline void EstimationDelayK(float* target,
+		int numSamples,
+		float* overtoneFreqs,
+		int& numOvertoneFreqs,
+		float sampleRate) {
+		const int requested = numOvertoneFreqs;
+		numOvertoneFreqs = 0;
+
+		if (!target || !overtoneFreqs || numSamples < 64 || requested <= 0 ||
+			!std::isfinite(sampleRate) || sampleRate <= 0.0f) {
+			return;
+		}
+
+		const double sr = static_cast<double>(sampleRate);
+		const double nyquist = 0.5 * sr;
+		if (nyquist <= 20.0) return;
+
+		YinResult yin = EstimateYin(target, numSamples, sr);
+		if (!yin.valid || yin.frequency <= 0.0) return;
+
+		// Longer windows help resolve low/mid notes; very high notes decay
+		// quickly, so their spectrum is taken from the attack/sustain onset.
+		double spectralSeconds = 0.35;
+		if (yin.frequency < 500.0) spectralSeconds = 1.20;
+		else if (yin.frequency < 1500.0) spectralSeconds = 0.80;
+
+		std::vector<Peak> peaks;
+		double maxPeakAmplitude = 0.0;
+		if (!BuildSpectrum(target, numSamples, sr, spectralSeconds,
+			peaks, maxPeakAmplitude) || peaks.empty()) {
+			return;
+		}
+
+		// Candidate fundamentals are normally the YIN estimate. If YIN's
+		// first period is ambiguous, also test its octave-down alternative.
+		// A strong, isolated high-frequency partial cluster can override a
+		// low-frequency YIN result when no corresponding narrow spectral
+		// peak exists at the YIN frequency (common with very high piano notes).
+		std::vector<double> bases;
+		std::vector<int> baseDivisors;
+		bool highClusterOverride = false;
+		const double highClusterFrequency = FindStrongHighCluster(
+			peaks, maxPeakAmplitude, yin.frequency, highClusterOverride);
+		const double cmndAtYin = CmndAtFrequency(yin, sr, yin.frequency);
+
+		if (highClusterOverride && highClusterFrequency > 15.0 &&
+			highClusterFrequency < nyquist) {
+			bases.push_back(highClusterFrequency);
+			baseDivisors.push_back(1);
+		}
+		else {
+			bases.push_back(yin.frequency);
+			baseDivisors.push_back(1);
+			// Check octave/subharmonic ambiguities only when the longer
+			// period has a distinctly better YIN minimum. This avoids
+			// promoting arbitrary low-frequency noise peaks.
+			for (int divisor = 2; divisor <= 4; ++divisor) {
+				const double alternate = yin.frequency / static_cast<double>(divisor);
+				if (alternate < 20.0) continue;
+				const double alternateCmnd = CmndAtFrequency(yin, sr, alternate);
+				if (alternateCmnd + 0.03 < cmndAtYin) {
+					bases.push_back(alternate);
+					baseDivisors.push_back(divisor);
+				}
+			}
+		}
+
+		const int analysisHarmonics = std::min(128, std::max(16, requested));
+		const double bGrid[] = {
+			0.0, 0.00002, 0.00005, 0.00010, 0.00015, 0.00020,
+			0.00030, 0.00040, 0.00050, 0.00075, 0.00100, 0.00125,
+			0.00150, 0.00175, 0.00200, 0.00250, 0.00300, 0.00350,
+			0.00400, 0.00450, 0.00500, 0.00550, 0.00600, 0.00650,
+			0.00700, 0.00750, 0.00800, 0.00900, 0.01000, 0.01200,
+			0.01400, 0.01600, 0.01800, 0.02000, 0.02400, 0.02800,
+			0.03200, 0.04000, 0.05000
+		};
+		const int bCount = static_cast<int>(sizeof(bGrid) / sizeof(bGrid[0]));
+
+		std::vector<double> ac;
+		double acSampleRate = sr;
+		BuildWindowedAutocorrelation(target, numSamples, sr, 0.40, ac);
+
+		Candidate best;
+		best.valid = false;
+
+		for (std::size_t bi = 0; bi < bases.size(); ++bi) {
+			const double base = bases[bi];
+			const int divisor = baseDivisors[bi];
+			if (!(base >= 15.0 && base < nyquist)) continue;
+			const bool isSubharmonicCandidate = divisor > 1;
+
+			for (int bIndex = 0; bIndex < bCount; ++bIndex) {
+				const double B = bGrid[bIndex];
+				for (int step = -30; step <= 30; ++step) {
+					const double fraction = static_cast<double>(step) * 0.002;
+					const double f1 = base * (1.0 + fraction);
+					if (!(f1 >= 15.0 && f1 < nyquist)) continue;
+
+					Candidate current;
+					current.valid = true;
+					current.fundamental = f1;
+					current.inharmonicity = B;
+					current.prefixCount = 0;
+					current.score = 0.0;
+					current.matches.clear();
+
+					for (int h = 1; h <= analysisHarmonics; ++h) {
+						const double hD = static_cast<double>(h);
+						const double predicted = f1 * hD *
+							std::sqrt((1.0 + B * hD * hD) / (1.0 + B));
+						if (predicted >= nyquist) break;
+
+						const double tolerance = std::max(0.8, predicted * 0.0035);
+						const Peak* peak = FindStrongestPeakInRange(
+							peaks, predicted - tolerance, predicted + tolerance);
+						if (peak && peak->amplitude >= maxPeakAmplitude * 0.001) {
+							Match m;
+							m.harmonic = h;
+							m.frequency = peak->frequency;
+							m.amplitude = peak->amplitude;
+							current.matches.push_back(m);
+						}
+					}
+
+					// Only the initial uninterrupted sequence is eligible
+					// for output. Later matches after a gap are not promoted.
+					for (std::size_t mi = 0; mi < current.matches.size(); ++mi) {
+						if (current.matches[mi].harmonic == current.prefixCount + 1) {
+							++current.prefixCount;
+						}
+						else if (current.matches[mi].harmonic > current.prefixCount + 1) {
+							break;
+						}
+					}
+
+					current.score = current.prefixCount * 4.0 +
+						current.matches.size() * 0.25;
+					for (std::size_t mi = 0; mi < current.matches.size(); ++mi) {
+						const Match& m = current.matches[mi];
+						const double relative = std::max(0.0, m.amplitude / maxPeakAmplitude);
+						current.score += (m.harmonic <= 8 ? 1.2 : 0.2) *
+							std::sqrt(relative);
+					}
+					if (current.prefixCount == 0) current.score -= 10.0;
+					if (!current.matches.empty()) {
+						const int lastH = current.matches.back().harmonic;
+						current.score -= 0.5 *
+							static_cast<double>(lastH - static_cast<int>(current.matches.size()));
+					}
+
+					// YIN/AC evidence is useful below ~1.5 kHz. At higher
+					// pitches integer-lag quantization becomes too coarse.
+					if (current.prefixCount >= 1 && f1 <= 1500.0 && !ac.empty()) {
+						current.score += 4.0 * AutocorrelationAtFrequency(
+							ac, acSampleRate, f1);
+
+						// An octave-down candidate is accepted only when its
+						// time-domain difference minimum is materially better.
+						if (isSubharmonicCandidate) {
+							const double cmndAtCandidate = CmndAtFrequency(
+								yin, acSampleRate, f1);
+							current.score += 150.0 *
+								(cmndAtYin - std::min(1.0, std::max(0.0, cmndAtCandidate)));
+						}
+					}
+
+					current.score -= 2.0 * std::fabs(std::log(f1 / base));
+
+					if (!best.valid || current.score > best.score) {
+						best = current;
+					}
+				}
+			}
+		}
+
+		if (!best.valid || best.prefixCount <= 0 || best.matches.empty()) return;
+
+		const int outputCount = std::min(requested, best.prefixCount);
+		int written = 0;
+		for (int h = 1; h <= outputCount; ++h) {
+			// matches are in increasing harmonic order; only write exact
+			// consecutive indices 1..prefixCount.
+			const Match* found = nullptr;
+			for (std::size_t mi = 0; mi < best.matches.size(); ++mi) {
+				if (best.matches[mi].harmonic == h) {
+					found = &best.matches[mi];
+					break;
+				}
+			}
+			if (!found || !std::isfinite(found->frequency) || found->frequency <= 0.0) {
+				break;
+			}
+			overtoneFreqs[written++] = static_cast<float>(found->frequency);
+		}
+		numOvertoneFreqs = written;
+	}
+
+	inline void EstimationDelayK(float* target,
+		int numSamples,
+		float* overtoneFreqs,
+		int& numOvertoneFreqs)
+	{
+		EstimationDelayK(target, numSamples, overtoneFreqs, numOvertoneFreqs, PianoDWG::SampleRate);
+	}
+};
+
+using namespace EstimationOvertone;
 
 
 namespace OptimizeMK
