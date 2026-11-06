@@ -603,7 +603,7 @@ namespace PianoDWG
 		Bridge bridgeMatrix[NumStrings][NumStrings];//琴桥耦合响应
 		Board board[NumStrings];//琴板响应
 
-		Sample releaseDampV = 0.999;//释放阻尼系数
+		Sample releaseDampV = 0.98;//释放阻尼系数
 
 		Sample pass[NumStrings];//状态
 		Sample damp = 1.;

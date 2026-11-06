@@ -22,7 +22,7 @@ namespace TVST3Info {
 	inline constexpr char PluginSubCategory[] = "";
 
 	inline constexpr uint32_t EditorWidth = 640;
-	inline constexpr uint32_t EditorHeight = 480;
+	inline constexpr uint32_t EditorHeight = 360;
 	inline constexpr uint32_t MaxMidiEventsPerBlock = 4096;
 
 	// These are example IDs. Generate two globally unique 128-bit IDs before shipping.
