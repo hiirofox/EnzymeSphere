@@ -1,5 +1,6 @@
 # CMake / Visual Studio build output
 /build/
+*/build/
 
 # Compiled binaries and debug artifacts
 *.exe
@@ -41,3 +42,6 @@
 *.aiff
 *.mid
 *.midi
+
+#checkpoints
+*.txt
