@@ -22,6 +22,10 @@ namespace TrainPianoDWG2
 			re_.resize(4096);
 			im_.resize(4096);
 			prepareTarget(target, numSamples, overtoneFreqs, numOvertones);
+			// The initialized state is copied to seed Enzyme's shadow.
+			// Discard the final target FFT so its scratch starts with zero adjoints.
+			std::fill(re_.begin(), re_.end(), 0.0);
+			std::fill(im_.begin(), im_.end(), 0.0);
 			env_.resize(refEnv_.size());
 			residual_.resize(refRipple_.size());
 			mod_.resize(refMod_.size());
