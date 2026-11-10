@@ -313,8 +313,8 @@ namespace TrainPianoDWG2
 					if (ix < 2)
 					{
 						current = &temp;
-					makeSpec(y, numSamples_, mainN[ix], mainN[ix] / 4,
-						windows[ix == 0 ? 2 : 4].data(), fftRe, fftIm, *current);
+						makeSpec(y, numSamples_, mainN[ix], mainN[ix] / 4,
+							windows[ix == 0 ? 2 : 4].data(), fftRe, fftIm, *current);
 					}
 
 					const Spec& target = targetMain_[ix];
