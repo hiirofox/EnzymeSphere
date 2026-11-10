@@ -9,17 +9,18 @@ extern "C" {
 	void __enzyme_autodiff(void*, ...);
 }
 
-TrainPianoDWG2::TrainPianoDWG2 train;
+TrainPianoDWG2::TrainSetup trainSetup;
 int isInit = 0;
-void loss(float* params, float* lossOut, int numParams)
+static void loss(float* params, float* lossOut, int numParams, TrainPianoDWG2::TrainSetup* setup)
 {
-	*lossOut = train.loss(params, numParams);
+	TrainPianoDWG2::TrainPianoDWG2 train(*setup);
+	*lossOut = setup->loss(params, numParams);
 }
 float gradient(const float* params, float* grad, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
 	if (!isInit)
 	{
-		train.InitTrainState(targetL, targetR, numSamples, overtoneFreqs, numOvertones);
+		trainSetup.Setup(targetL, targetR, numSamples, overtoneFreqs, numOvertones);
 		isInit = 1;
 	}
 	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
@@ -29,7 +30,8 @@ float gradient(const float* params, float* grad, int numParams, float* targetL, 
 		(void*)loss,
 		enzyme_dup, params, grad,
 		enzyme_dup, &lossOut, &dLoss,
-		enzyme_const, numParams
+		enzyme_const, numParams,
+		enzyme_const, &trainSetup
 	);
 	return lossOut;
 }
