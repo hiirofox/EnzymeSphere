@@ -422,6 +422,21 @@ namespace PianoDWG2
 		{
 			dampV = releaseDampV;
 		}
+		void Reset()
+		{
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				hammer[i].Reset();
+				delay[i].Reset();
+				mixl[i].Reset();
+				mixr[i].Reset();
+				for (int j = 0; j < NumStrings; ++j)
+					matrix[i][j].Reset();
+			}
+			nll.Reset();
+			nlr.Reset();
+			for (int i = 0; i < NumStrings; ++i) pass[i] = 0.;
+		}
 		void InitParams(Sample* out, Sample f0)
 		{
 			int delaySample[NumStrings];

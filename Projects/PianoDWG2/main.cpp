@@ -22,9 +22,12 @@ WavReader wr;
 WavWriter ww;
 
 int numSamples;
-std::vector<float> trainTarget;
-std::vector<float> target;
-std::vector<float> tmp;
+std::vector<float> trainTargetL;
+std::vector<float> trainTargetR;
+std::vector<float> targetL;
+std::vector<float> targetR;
+
+std::vector<float> tmpL, tmpR;
 
 constexpr static int NumParams = PianoDWG2::PianoDWG2Voice<float>::NumParams;
 
@@ -46,16 +49,17 @@ void SaveCheckpoint()
 void RenderNow()
 {
 	printf("render wav!\n");
-	tmp.resize(target.size());
+	tmpL.resize(targetL.size());
+	tmpR.resize(targetR.size());
 	ww.CreateWAV(root + "now-" + targetfile + ".wav", PianoDWG2::SampleRate);
 	instance1.VecToParams(params);
 	instance1.Reset();
 	instance1.NoteOn(1.0);
-	instance1.ProcessBlock(tmp.data(), numSamples);
-	ww.WriteBlock(tmp.data(), tmp.data(), numSamples);
+	instance1.ProcessBlock(tmpL.data(), tmpR.data(), numSamples);
+	ww.WriteBlock(tmpL.data(), tmpR.data(), numSamples);
 	ww.Close();
-	ww.CreateWAV(root + "target-" + targetfile + ".wav", PianoDWG::SampleRate);
-	ww.WriteBlock(target.data(), target.data(), numSamples);
+	ww.CreateWAV(root + "target-" + targetfile + ".wav", PianoDWG2::SampleRate);
+	ww.WriteBlock(targetL.data(), targetR.data(), numSamples);
 	ww.Close();
 }
 int LoadCheckpoint()
@@ -84,29 +88,30 @@ int main(int argc, char* argv[])
 
 	wr.OpenWAV(root + targetfile + ".wav");
 	numSamples = (int)wr.GetNumSamples();
-	target.resize(numSamples);
-	wr.ReadBlock(target.data(), target.data(), numSamples);
+	targetL.resize(numSamples);
+	targetR.resize(numSamples);
+	wr.ReadBlock(targetL.data(), targetR.data(), numSamples);
 	printf("numSamples=%d\n", numSamples);
 	if (numSamples <= 0) return 1;
 
-	EstimationDelayK(target.data(), numSamples, dispFreqs, NumDispFreqs);
-	tui.UpdateTarget(target.data(), numSamples, dispFreqs, NumDispFreqs);
-
-	//基频色散估计
-	//mkEstim();
+	//辨识泛音频率直接用左声道行了
+	EstimationDelayK(targetL.data(), numSamples, dispFreqs, NumDispFreqs);
+	tui.UpdateTarget(targetL.data(), numSamples, dispFreqs, NumDispFreqs);
 
 	if (!LoadCheckpoint())
 	{
-		instance1.InitParams(params, 440.);
+		instance1.InitParams(params, dispFreqs[0]);
 	}
 
-	int tCompensate = PianoDWG2::SampleRate / dispFreqs[0];//补偿一个周期延迟
-	trainTarget.resize(tCompensate, 0.);
-	trainTarget.insert(trainTarget.end(), target.begin(), target.end());
+	int tCompensate = PianoDWG2::SampleRate / dispFreqs[0];//补偿基频一个周期延迟
+	trainTargetL.resize(tCompensate, 0.);
+	trainTargetR.resize(tCompensate, 0.);
+	trainTargetL.insert(trainTargetL.end(), targetL.begin(), targetL.end());
+	trainTargetR.insert(trainTargetR.end(), targetR.begin(), targetR.end());
 
 	for (int iter = 0, haveBest = 0; iter <= 2000; ++iter)
 	{
-		float loss = gradient(params, grads, NumParams, trainTarget.data(), trainTarget.size());
+		float loss = gradient(params, grads, NumParams, trainTargetL.data(), trainTargetR.data(), trainTargetL.size(), dispFreqs, NumDispFreqs);
 
 		if (loss < bestloss)
 		{
