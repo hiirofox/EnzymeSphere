@@ -1,6 +1,6 @@
 #include "loss.h"
 #include "PianoDWG2.h"
-#include "MyTrainV2.h"
+#include "namespaceTrainV2.h"
 #include "estimationDelayK.h"
 
 extern "C" {
@@ -9,28 +9,33 @@ extern "C" {
 	void __enzyme_autodiff(void*, ...);
 }
 
-TrainPianoDWG2::TrainSetup trainSetup;
+TrainPianoDWG2::TrainPianoDWG2 train;
+static TrainPianoDWG2::TrainPianoDWG2 shadowTrain, initialShadow;
 int isInit = 0;
-static void loss(float* params, float* lossOut, int numParams, TrainPianoDWG2::TrainSetup* setup)
+static void lossAD(TrainPianoDWG2::TrainPianoDWG2* state, float* params, float* lossOut, int numParams)
 {
-	TrainPianoDWG2::TrainPianoDWG2 train(*setup);
-	*lossOut = train.loss(params, numParams);
+	*lossOut = state->loss(params, numParams);
 }
 float gradient(const float* params, float* grad, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
 	if (!isInit)
 	{
-		trainSetup.Setup(targetL, targetR, numSamples, overtoneFreqs, numOvertones);
+		train.InitTrainState(targetL, targetR, numSamples, overtoneFreqs, numOvertones);
+		initialShadow = train;
 		isInit = 1;
 	}
 	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
 	float lossOut, dLoss = 1.;
+	train.Reset();
+	// Restore independent backing storage and discard adjoints from the previous call.
+	shadowTrain = initialShadow;
+	shadowTrain.Reset();
 	__enzyme_autodiff(
-		(void*)loss,
+		(void*)lossAD,
+		enzyme_dup, &train, &shadowTrain,
 		enzyme_dup, params, grad,
 		enzyme_dup, &lossOut, &dLoss,
-		enzyme_const, numParams,
-		enzyme_const, &trainSetup
+		enzyme_const, numParams
 	);
 	return lossOut;
 }

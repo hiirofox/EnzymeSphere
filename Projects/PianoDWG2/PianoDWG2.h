@@ -399,7 +399,7 @@ namespace PianoDWG2
 	{
 	public:
 		constexpr static int FirSize = 16;
-		using Hammer = HammerModel2<Sample, 2048>;
+		using Hammer = HammerModel2<Sample, 768>;
 		using DelayLine = DelayLine2<Sample, 48000>;
 		using FIR = FIR<Sample, FirSize>;
 		using Nonlinear = NLCells2<Sample, 4, 4>;
@@ -507,7 +507,7 @@ namespace PianoDWG2
 
 			// As in PianoDWG, use strong self-feedback and weak cross-coupling.
 			// Set the effective gain directly because DWG2 has no loop / NumStrings.
-			constexpr Sample commonGain = Sample(0.995);
+			constexpr Sample commonGain = Sample(0.95);
 			constexpr Sample crossGain = Sample(-0.002);
 			constexpr Sample selfGain = commonGain - Sample(NumStrings - 1) * crossGain;
 			constexpr Sample differenceGain = selfGain - crossGain;

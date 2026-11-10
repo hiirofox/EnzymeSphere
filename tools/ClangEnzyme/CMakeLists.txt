@@ -49,10 +49,6 @@ function(add_enzyme_object TARGET SOURCE)
             --target=x86_64-pc-windows-msvc
             -std=c++17
             -O2 -fno-vectorize -fno-slp-vectorize -fno-unroll-loops
-            
--mllvm -disable-loop-idiom-memset
--fno-builtin-memset
-
             ${ENZ_COMPILE_OPTIONS}
             ${_include_args}
             -MD -MF "${_depfile}" -MT "${_object}"
@@ -67,10 +63,6 @@ function(add_enzyme_object TARGET SOURCE)
             -mllvm -enzyme-inline=1
             -mllvm "-enzyme-max-type-offset=${CLANG_ENZYME_MAX_TYPE_OFFSET}"
             -O2
-		
--mllvm -disable-loop-idiom-memset
--fno-builtin-memset
-
             -c "${_ir}"
             -o "${_object}"
         DEPENDS
