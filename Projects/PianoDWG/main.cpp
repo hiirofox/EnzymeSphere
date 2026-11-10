@@ -67,35 +67,6 @@ int LoadCheckpoint()
 	fclose(pf);
 	return 1;
 }
-// maskId：-1=全部，1=hammer，2=disperser，3=bridgeMatrix，4=board
-// 其他值：全部梯度清零。
-inline void MaskGradients(float* grads, int maskId)
-{
-	if (!grads || maskId == -1) return;
-
-	constexpr int NumStrings = PianoDWG::PianoWaveguide<float>::NumStrings;
-	constexpr int GroupSizes[] = {
-		PianoDWG::HammerModelStatic<float>::NumParams,
-		PianoDWG::LatticeAPF<float, 4>::NumParams,
-		NumStrings * PianoDWG::LatticeIIR<float, 2>::NumParams,
-		PianoDWG::LatticeIIR<float, 2>::NumParams
-	};
-
-	int offset = 0;
-	for (int string = 0; string < NumStrings; ++string)
-	{
-		for (int group = 0; group < 4; ++group)
-		{
-			const int count = GroupSizes[group];
-			if (maskId != group + 1)
-			{
-				for (int i = 0; i < count; ++i)
-					grads[offset + i] = 0.0f;
-			}
-			offset += count;
-		}
-	}
-}
 
 constexpr int DispFreqCapacity = 40;
 int NumDispFreqs = DispFreqCapacity;
@@ -136,7 +107,6 @@ int main(int argc, char* argv[])
 	for (int iter = 0, haveBest = 0; iter <= 2000; ++iter)
 	{
 		float loss = gradientV2(params, grads, NumParams, trainTarget.data(), trainTarget.size());
-		MaskGradients(grads, -1);
 
 		if (loss < bestloss)
 		{

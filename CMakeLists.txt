@@ -39,7 +39,7 @@ target_link_libraries(project_external INTERFACE
 
 add_subdirectory(tools/ClangEnzyme)
 #设置项目路径
-set(ProjectPath "${CMAKE_SOURCE_DIR}/Projects/PianoDWG")
+set(ProjectPath "${CMAKE_SOURCE_DIR}/Projects/PianoDWG2")
 
 add_executable(app
     "${ProjectPath}/main.cpp"
