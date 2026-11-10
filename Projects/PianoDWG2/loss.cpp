@@ -16,13 +16,6 @@ static void lossAD(TrainPianoDWG2::TrainPianoDWG2* state, float* params, float* 
 {
 	*lossOut = state->loss(params, numParams);
 }
-
-void loss(float* params, float* lossOut, int numParams)
-{
-	train.Reset();
-	lossAD(&train, params, lossOut, numParams);
-}
-
 float gradient(const float* params, float* grad, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
 	if (!isInit)

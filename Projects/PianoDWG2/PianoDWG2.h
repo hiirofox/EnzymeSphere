@@ -449,7 +449,8 @@ namespace PianoDWG2
 			nlr.Reset();
 			for (int i = 0; i < NumStrings; ++i) pass[i] = 0.;
 		}
-		void InitParams(Sample* out, Sample f0)
+		/*
+		void InitParams(Sample* out, Sample f0, float* headL, float* headR)
 		{
 			int delaySample[NumStrings];
 			for (int i = 0; i < NumStrings; ++i)
@@ -460,8 +461,12 @@ namespace PianoDWG2
 				delaySample[i] = n;
 			}
 
-			for (int i = 0; i < NumStrings; ++i)
-				hammer[i].InitParams(out + i * Hammer::NumParams);
+			for (int i = 0; i < NumStrings / 2; ++i)
+			{
+				//hammer[i].InitParams(out + i * Hammer::NumParams);
+				hammer[i * 2 + 0].VecToParams(headL);
+				hammer[i * 2 + 1].VecToParams(headR);
+			}
 			int pos = NumStrings * Hammer::NumParams;
 			for (int i = 0; i < NumStrings; ++i)
 				delay[i].InitParams(out + pos, delaySample[i]), pos += DelayLine::NumParams;
@@ -469,7 +474,7 @@ namespace PianoDWG2
 				for (int j = 0; j < NumStrings; ++j)
 				{
 					if (i == j)//¶Ô½Ç
-						matrix[i][j].InitParams(out + pos, Sample(1. / NumStrings * 0.95)), pos += FIR::NumParams;
+						matrix[i][j].InitParams(out + pos, Sample(0.9)), pos += FIR::NumParams;
 					else
 						matrix[i][j].InitParams(out + pos, Sample(-0.06)), pos += FIR::NumParams;
 				}
@@ -479,6 +484,92 @@ namespace PianoDWG2
 				mixr[i].InitParams(out + pos, Sample(1. / NumStrings)), pos += FIR::NumParams;
 			nll.InitParams(out + pos), pos += Nonlinear::NumParams;
 			nlr.InitParams(out + pos), pos += Nonlinear::NumParams;
+		}
+		*/
+		void InitParams(Sample* out, Sample f0, const Sample* headL,
+			const Sample* headR, int numSamples)
+		{
+			// Pass the number of readable samples in each target channel.
+			if (!out)
+				return;
+
+			constexpr int firCenter = FirSize / 2;
+			constexpr int maxDelay = 47999;
+			constexpr int hammerSize = Hammer::NumParams;
+
+			// FIR coupling adds firCenter samples to the feedback loop.
+			const double period = std::isfinite(f0) && f0 > Sample(0)
+				? double(SampleRate) / double(f0)
+				: double(firCenter + 1);
+			const int delaySamples = static_cast<int>(
+				std::clamp(std::round(period - firCenter), 1.0, double(maxDelay)));
+			const int loopSamples = delaySamples + firCenter;
+
+			// As in PianoDWG, use strong self-feedback and weak cross-coupling.
+			// Set the effective gain directly because DWG2 has no loop / NumStrings.
+			constexpr Sample commonGain = Sample(0.95);
+			constexpr Sample crossGain = Sample(-0.002);
+			constexpr Sample selfGain = commonGain - Sample(NumStrings - 1) * crossGain;
+			constexpr Sample differenceGain = selfGain - crossGain;
+
+			const auto sampleAt = [numSamples](const Sample* channel, int n) -> Sample
+				{
+					return channel && n >= 0 && n < numSamples ? channel[n] : Sample(0);
+				};
+
+			// Seed the hammer from the target head, subtracting the signal already
+			// supplied by the previous round trip. Solve the initial coupling matrix
+			// using its common and difference modes.
+			Sample* p = out;
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				const Sample* channel = i % 2 == 0 ? headL : headR;
+				for (int n = 0; n < hammerSize; ++n)
+				{
+					const Sample desired = sampleAt(channel, n);
+					const Sample common =
+						(sampleAt(headL, n) + sampleAt(headR, n)) * Sample(0.5);
+
+					p[n] = common / commonGain
+						+ (desired - common) / differenceGain
+						- sampleAt(channel, n - loopSamples);
+				}
+				p += hammerSize;
+			}
+
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				*p = Sample(delaySamples);
+				p += DelayLine::NumParams;
+			}
+
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				for (int j = 0; j < NumStrings; ++j)
+				{
+					matrix[i][j].InitParams(p, i == j ? selfGain : crossGain);
+					p += FIR::NumParams;
+				}
+			}
+
+			// Average each pair of strings into its own channel. A tap at zero
+			// keeps the output mix from adding another delay to the target onset.
+			for (int channel = 0; channel < 2; ++channel)
+			{
+				for (int i = 0; i < NumStrings; ++i)
+				{
+					std::fill_n(p, FIR::NumParams, Sample(0));
+					p[0] = i % 2 == channel ? Sample(2) / Sample(NumStrings) : Sample(0);
+					p += FIR::NumParams;
+				}
+			}
+
+			nll.InitParams(p);
+			p += Nonlinear::NumParams;
+			nlr.InitParams(p);
+
+			VecToParams(out);
+			Reset();
 		}
 		void VecToParams(Sample* in)
 		{

@@ -12,7 +12,7 @@ std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
 std::string targetfile = "022Bb";//.wav
 bool trainMode = false;
 
-Adam<float> optV2(.001);
+Adam<float> optV2(.00005);
 //LBFGS<float> optV2(.0001);
 WavReader wr;
 WavWriter ww;
@@ -68,6 +68,31 @@ int LoadCheckpoint()
 	return 1;
 }
 
+void MarkGrads(float* grads, int mode)
+{
+	if (!grads || mode <= 0)
+		return;
+
+	using Voice = PianoDWG2::PianoDWG2Voice<float>;
+	constexpr int strings = Voice::NumStrings;
+	int offset = 0;
+
+	const auto freeze = [&](int flag, int count)
+		{
+			if (mode & flag)
+				std::fill_n(grads + offset, count, 0.0f);
+			offset += count;
+		};
+
+	freeze(1, strings * Voice::Hammer::NumParams);        // Hammer
+	freeze(2, strings * Voice::DelayLine::NumParams);     // 延迟线
+	freeze(4, strings * strings * Voice::FIR::NumParams); // 耦合反馈矩阵
+	freeze(8, strings * Voice::FIR::NumParams);           // 左输出混音
+	freeze(16, strings * Voice::FIR::NumParams);           // 右输出混音
+	freeze(32, Voice::Nonlinear::NumParams);                // 左输出非线性
+	freeze(64, Voice::Nonlinear::NumParams);                // 右输出非线性
+}
+
 constexpr int DispFreqCapacity = 40;
 int NumDispFreqs = DispFreqCapacity;
 float dispFreqs[DispFreqCapacity]{};
@@ -96,7 +121,7 @@ int main(int argc, char* argv[])
 
 	if (!LoadCheckpoint())
 	{
-		instance1.InitParams(params, dispFreqs[0]);
+		instance1.InitParams(params, dispFreqs[0], targetL.data(), targetR.data(), numSamples);
 	}
 
 	int tCompensate = PianoDWG2::SampleRate / dispFreqs[0];//补偿基频一个周期延迟
@@ -108,6 +133,7 @@ int main(int argc, char* argv[])
 	for (int iter = 0, haveBest = 0; iter <= 2000; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, trainTargetL.data(), trainTargetR.data(), trainTargetL.size(), dispFreqs, NumDispFreqs);
+		MarkGrads(grads, 4);
 
 		if (loss < bestloss)
 		{
