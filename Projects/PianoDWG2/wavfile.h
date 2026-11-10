@@ -1,5 +1,5 @@
 #pragma once
-#include "PianoDWG.h"
+#include "define.h"
 
 #include <fstream>
 #include <string>
@@ -9,7 +9,7 @@
 class WavWriter
 {
 public:
-	void CreateWAV(std::string path, float sampleRate = PianoDWG::SampleRate)
+	void CreateWAV(std::string path, float sampleRate = PianoDWG2::SampleRate)
 	{
 		Close();
 
@@ -64,7 +64,7 @@ public:
 
 private:
 	std::ofstream m_file;
-	uint32_t m_sampleRate = static_cast<uint32_t>(PianoDWG::SampleRate);
+	uint32_t m_sampleRate = static_cast<uint32_t>(PianoDWG2::SampleRate);
 	uint32_t m_dataBytes = 0;
 
 	static int16_t FloatToInt16(float v)

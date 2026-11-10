@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <vector>
 #include "D2DCanvas.h"
-#include "PianoDWG.h"
+#include "PianoDWG2.h"
 
 class TrainStateUI : public D2DCanvas
 {
@@ -25,7 +25,7 @@ public:
 	static constexpr float MagnitudeMaxDb = -15.0f;
 
 	static_assert(FrequencyMinHz >= 0.0f && FrequencyMaxHz > FrequencyMinHz &&
-		FrequencyMaxHz <= PianoDWG::PianoWaveguide<float>::SampleRate / 2.0f,
+		FrequencyMaxHz <= PianoDWG2::SampleRate / 2.0f,
 		"Frequency range must be increasing and within [0, sample rate / 2]");
 	static_assert(MagnitudeMaxDb > MagnitudeMinDb,
 		"Maximum dB must exceed minimum dB");
@@ -77,7 +77,7 @@ public:
 					{
 						const float hz = dispFreqs[i];
 						if (std::isfinite(hz) && hz > 0.0f &&
-							hz < PianoDWG::PianoWaveguide<float>::SampleRate * 0.5f)
+							hz < PianoDWG2::SampleRate * 0.5f)
 							frequencies->push_back(hz);
 					}
 				}
@@ -101,7 +101,7 @@ public:
 	{
 		{
 			std::lock_guard<std::mutex> lock(updateMutex_);
-			if (!values || count != PianoDWG::PianoWaveguide<float>::NumParams || !targetSpectrum_)
+			if (!values || count != PianoDWG2::PianoDWG2Voice<float>::NumParams || !targetSpectrum_)
 				return;
 			const auto now = std::chrono::steady_clock::now();
 			if (now - lastRepaintTime_ < std::chrono::duration<double>(1.0 / 30.0))
@@ -293,7 +293,7 @@ private:
 	}
 
 	Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
-	PianoDWG::PianoWaveguide<float> pdwg_;
+	PianoDWG2::PianoDWG2Voice<float> pdwg_;
 	std::mutex updateMutex_;
 	std::vector<float> params_, audio_;
 	std::shared_ptr<const std::vector<float>> targetSpectrum_;

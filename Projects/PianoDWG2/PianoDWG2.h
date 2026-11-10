@@ -17,7 +17,7 @@
 #include "define.h"
 #include "estimationDelayK.h"
 
-namespace PianoDWG
+namespace PianoDWG2
 {
 	template <typename Sample, int NumLayers>
 	class LatticeAPF
@@ -173,12 +173,10 @@ namespace PianoDWG
 		}
 	};
 
-	template <typename Sample>
+	template <typename Sample, int NumCells, int NumLatticeLayers>
 	class NLCells2
 	{
 	public:
-		constexpr static int NumCells = 4;
-		constexpr static int NumLatticeLayers = 4;
 		constexpr static int NumParams = NumCells * (LatticeIIR<Sample, NumLatticeLayers>::NumParams + 8);
 	private:
 		LatticeIIR<Sample, NumLatticeLayers> iirs[NumCells];
@@ -261,11 +259,14 @@ namespace PianoDWG
 	template<typename Sample, int MaxDelayTime>
 	class DelayLine2
 	{
+	private:
 		Sample buffer[MaxDelayTime];
 		int pos = 0;
 		int delay = 0;
 	public:
-		void InitParams(Sample* out, Sample delaySample)
+		constexpr static int NumParams = 1;
+
+		void InitParams(Sample* out, int delaySample)
 		{
 			delay = delaySample;
 			if (out) ParamsToVec(out);
@@ -292,6 +293,11 @@ namespace PianoDWG
 			++pos;
 			if (pos >= delay) pos = 0;
 			return y;
+		}
+		void Reset()
+		{
+			for (int i = 0; i < MaxDelayTime; ++i) buffer[i] = 0.;
+			pos = 0;
 		}
 	};
 	template<typename Sample, int TableSize >
@@ -324,7 +330,6 @@ namespace PianoDWG
 		void Reset()
 		{
 			pos = 0;
-			nlcells.Reset();
 		}
 		void NoteOn(Sample velocity)
 		{
@@ -381,10 +386,11 @@ namespace PianoDWG
 	class PianoDWG2Voice
 	{
 	public:
+		constexpr static int FirSize = 16;
 		using Hammer = HammerModel2<Sample, 768>;
 		using DelayLine = DelayLine2<Sample, 48000>;
-		using FIR = FIR<Sample, 8>;
-		using Nonlinear = NLCells2<Sample>;
+		using FIR = FIR<Sample, FirSize>;
+		using Nonlinear = NLCells2<Sample, 4, 4>;
 
 		constexpr static int NumStrings = 4;
 		constexpr static int NumParams =
@@ -416,11 +422,15 @@ namespace PianoDWG
 		{
 			dampV = releaseDampV;
 		}
-		void InitParams(Sample* out, Sample f0, Sample sampleRate)
+		void InitParams(Sample* out, Sample f0)
 		{
-			Sample delaySample[NumStrings];
+			int delaySample[NumStrings];
 			for (int i = 0; i < NumStrings; ++i)
-				delaySample[i] = sampleRate / f0;
+			{
+				int n = SampleRate / f0 - 1 - FirSize / 2;
+				if (n < 0) n = 0;
+				delaySample[i] = n;
+			}
 
 			for (int i = 0; i < NumStrings; ++i)
 				hammer[i].InitParams(out + i * Hammer::NumParams);

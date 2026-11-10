@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
-#include "PianoDWG.h"
+#include "PianoDWG2.h"
 #include "optimizer.h"
 #include "wavfile.h"
 #include "loss.h"
@@ -26,12 +26,12 @@ std::vector<float> trainTarget;
 std::vector<float> target;
 std::vector<float> tmp;
 
-constexpr static int NumParams = PianoDWG::PianoWaveguide<float>::NumParams;
+constexpr static int NumParams = PianoDWG2::PianoDWG2Voice<float>::NumParams;
 
 float params[NumParams];
 float grads[NumParams];
 
-PianoDWG::PianoWaveguide<float> instance1;
+PianoDWG2::PianoDWG2Voice<float> instance1;
 
 float bestloss = 9999999.;
 float bestparams[NumParams];
@@ -47,7 +47,7 @@ void RenderNow()
 {
 	printf("render wav!\n");
 	tmp.resize(target.size());
-	ww.CreateWAV(root + "now-" + targetfile + ".wav", PianoDWG::SampleRate);
+	ww.CreateWAV(root + "now-" + targetfile + ".wav", PianoDWG2::SampleRate);
 	instance1.VecToParams(params);
 	instance1.Reset();
 	instance1.NoteOn(1.0);
@@ -97,16 +97,16 @@ int main(int argc, char* argv[])
 
 	if (!LoadCheckpoint())
 	{
-		instance1.InitParams(params, target.data(), numSamples);
+		instance1.InitParams(params, 440.);
 	}
 
-	int tCompensate = PianoDWG::SampleRate / dispFreqs[0];//补偿一个周期延迟
+	int tCompensate = PianoDWG2::SampleRate / dispFreqs[0];//补偿一个周期延迟
 	trainTarget.resize(tCompensate, 0.);
 	trainTarget.insert(trainTarget.end(), target.begin(), target.end());
 
 	for (int iter = 0, haveBest = 0; iter <= 2000; ++iter)
 	{
-		float loss = gradientV2(params, grads, NumParams, trainTarget.data(), trainTarget.size());
+		float loss = gradient(params, grads, NumParams, trainTarget.data(), trainTarget.size());
 
 		if (loss < bestloss)
 		{
