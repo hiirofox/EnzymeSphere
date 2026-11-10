@@ -19,6 +19,14 @@
 
 namespace PianoDWG2
 {
+	template<class T, std::size_t N>
+	inline void ClearBuffer(T(&buffer)[N]) noexcept//clang会把循环置零优化成memset，导致enzyme无法求导
+	{
+		volatile T* out = buffer;
+		for (std::size_t i = 0; i < N; ++i)
+			out[i] = T{};
+	}
+
 	template <typename Sample, int NumLayers>
 	class LatticeAPF
 	{
@@ -260,7 +268,7 @@ namespace PianoDWG2
 	class DelayLine2
 	{
 	private:
-		Sample buffer[MaxDelayTime];
+		Sample buffer[MaxDelayTime + 10];
 		int pos = 0;
 		int delay = 0;
 	public:
@@ -296,8 +304,10 @@ namespace PianoDWG2
 		}
 		void Reset()
 		{
-			for (int i = 0; i < MaxDelayTime; ++i) buffer[i] = 0.;
-			pos = 0;
+			//for (int i = 0; i < MaxDelayTime; ++i) buffer[i] = 0.;
+			ClearBuffer(buffer);
+			volatile int& resetPos = pos;
+			resetPos = 0;
 		}
 	};
 	template<typename Sample, int TableSize >
@@ -369,7 +379,9 @@ namespace PianoDWG2
 		}
 		void Reset()
 		{
-			for (int i = 0; i < N; ++i) buffer[i] = 0.;
+			volatile Sample* out = buffer;
+			for (int i = 0; i < 2 * N; ++i) out[i] = Sample{};
+			head = 0;
 		}
 		inline Sample ProcessSample(Sample x)
 		{
@@ -444,6 +456,7 @@ namespace PianoDWG2
 			{
 				int n = SampleRate / f0 - 1 - FirSize / 2;
 				if (n < 0) n = 0;
+				if (n >= 48000)n = 48000 - 1;
 				delaySample[i] = n;
 			}
 

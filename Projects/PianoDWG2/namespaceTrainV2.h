@@ -19,14 +19,14 @@ namespace TrainPianoDWG2
 			if (!target || !overtoneFreqs || numOvertones <= 0 || numSamples < 7168)
 				return;
 
+			re_.resize(4096);
+			im_.resize(4096);
 			prepareTarget(target, numSamples, overtoneFreqs, numOvertones);
 			env_.resize(refEnv_.size());
 			residual_.resize(refRipple_.size());
 			mod_.resize(refMod_.size());
 			rms22_.resize(refRms22_.size());
 			rms88_.resize(refRms88_.size());
-			re_.resize(4096);
-			im_.resize(4096);
 			for (int i = 0; i < 3; ++i)
 			{
 				yMain_[i].mag.resize(targetMain_[i].mag.size());
@@ -210,9 +210,16 @@ namespace TrainPianoDWG2
 			const int end = std::min(numSamples, int(0.12 * SR));
 			const int parts = numOvertones;
 			for (int i = 0; i < 3; ++i)
+			{
+				resizeSpec(numSamples, mainN[i], mainN[i] / 4, targetMain_[i]);
 				makeSpec(target, numSamples, mainN[i], mainN[i] / 4, targetMain_[i]);
+			}
 			for (int i = 0; i < 3; ++i)
+			{
+				resizeSpec(end, shortN[i], shortN[i] / 4, targetShort_[i]);
 				makeSpec(target, end, shortN[i], shortN[i] / 4, targetShort_[i]);
+			}
+			resizeSpec(end, 256, 32, targetFlux_);
 			makeSpec(target, end, 256, 32, targetFlux_);
 			const int frames = targetMain_[2].frames;
 			const int T = frames - 6;
@@ -248,6 +255,8 @@ namespace TrainPianoDWG2
 			for (int k = 0; k < parts; ++k)
 				modulations(refRipple_.data() + std::size_t(k) * T,
 					T, modN, refMod_.data() + std::size_t(k) * modN);
+			refRms22_.resize(rmsFrames(end, 22));
+			refRms88_.resize(rmsFrames(end, 88));
 			makeRms(target, end, 22, refRms22_);
 			makeRms(target, end, 88, refRms88_);
 			refFlux_.clear();
@@ -312,17 +321,19 @@ namespace TrainPianoDWG2
 				}
 			}
 		}
+		static void resizeSpec(int length, int n, int hop, Spec& out)
+		{
+			out.mag.resize(std::size_t(length / hop + 1) * (n / 2 + 1));
+		}
+
 		void makeSpec(const float* x, int length, int n, int hop, Spec& out)
 		{
 			out.n = n;
 			out.hop = hop;
 			out.frames = length / hop + 1;
 			out.bins = n / 2 + 1;
-			out.mag.resize(std::size_t(out.frames) * out.bins);
 			out.largest = 0.0;
 			out.norm = 0.0;
-			re_.resize(n);
-			im_.resize(n);
 			for (int t = 0; t < out.frames; ++t)
 			{
 				const int offset = t * hop - n / 2;
@@ -395,11 +406,15 @@ namespace TrainPianoDWG2
 				out[h - 1] = std::sqrt(re * re + im * im + 1.0e-30) / len;
 			}
 		}
+		static int rmsFrames(int end, int window)
+		{
+			return 1 + (end - window) / std::max(1, window / 4);
+		}
+
 		static void makeRms(const float* x, int end, int window, std::vector<double>& out)
 		{
 			const int stride = std::max(1, window / 4);
-			const int count = 1 + (end - window) / stride;
-			out.resize(std::max(0, count));
+			const int count = rmsFrames(end, window);
 			for (int t = 0; t < count; ++t)
 			{
 				double v = 1.0e-12;
