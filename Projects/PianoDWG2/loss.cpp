@@ -10,29 +10,23 @@ extern "C" {
 }
 
 TrainPianoDWG2::TrainPianoDWG2 train;
-static TrainPianoDWG2::TrainPianoDWG2 shadowTrain, initialShadow;
 int isInit = 0;
-static void lossAD(TrainPianoDWG2::TrainPianoDWG2* state, float* params, float* lossOut, int numParams)
+void loss(float* params, float* lossOut, int numParams)
 {
-	*lossOut = state->loss(params, numParams);
+	*lossOut = train.loss(params, numParams);
 }
 float gradient(const float* params, float* grad, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
 	if (!isInit)
 	{
 		train.InitTrainState(targetL, targetR, numSamples, overtoneFreqs, numOvertones);
-		initialShadow = train;
 		isInit = 1;
 	}
 	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
 	float lossOut, dLoss = 1.;
 	train.Reset();
-	// Restore independent backing storage and discard adjoints from the previous call.
-	shadowTrain = initialShadow;
-	shadowTrain.Reset();
 	__enzyme_autodiff(
-		(void*)lossAD,
-		enzyme_dup, &train, &shadowTrain,
+		(void*)loss,
 		enzyme_dup, params, grad,
 		enzyme_dup, &lossOut, &dLoss,
 		enzyme_const, numParams

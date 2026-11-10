@@ -458,7 +458,7 @@ namespace TrainPianoDWG2
 	private:
 		std::vector<float> renderL, renderR;
 		PianoDWG2::PianoDWG2Voice<float> voice;
-		LossPoweredByAI losseval;
+		LossV2PoweredByAI losseval;
 		int numSamples = 0;
 	public:
 		void InitTrainState(float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
