@@ -6,10 +6,11 @@
 #include <cstddef>
 #include <stdexcept>
 #include <vector>
+#include "PianoDWG2.h"
 
 namespace TrainPianoDWG2
 {
-	class Train
+	class LossPoweredByAI
 	{
 	public:
 		float loss(float* yL, float* yR, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
@@ -406,6 +407,27 @@ namespace TrainPianoDWG2
 				}
 				out[t] = std::sqrt(v);
 			}
+		}
+	};
+
+	class TrainPianoDWG2
+	{
+	private:
+		std::vector<float> renderL, renderR;
+		PianoDWG2::PianoDWG2Voice<float> voice;
+		LossPoweredByAI losseval;
+	public:
+		float loss(float* params, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
+		{
+			renderL.resize(numSamples);
+			renderR.resize(numSamples);
+
+			voice.VecToParams(params);
+			voice.Reset();
+			voice.NoteOn(1.);
+			voice.ProcessBlock(renderL.data(), renderR.data(), numSamples);
+
+			return losseval.loss(renderL.data(), renderR.data(), targetL, targetR, numSamples, overtoneFreqs, numOvertones);
 		}
 	};
 }

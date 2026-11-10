@@ -1,5 +1,6 @@
 #include "loss.h"
 #include "PianoDWG2.h"
+#include "namespaceTrainV2.h"
 #include "estimationDelayK.h"
 
 extern "C" {
@@ -8,9 +9,12 @@ extern "C" {
 	void __enzyme_autodiff(void*, ...);
 }
 
+TrainPianoDWG2::TrainPianoDWG2 train;
 void loss(float* params, float* lossOut, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
+	//*lossOut = train.loss(params, numParams, targetL, targetR, numSamples, overtoneFreqs, numOvertones);
 }
+
 float gradient(const float* params, float* grad, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
 	for (int i = 0; i < numParams; ++i)grad[i] = 0.;
@@ -25,6 +29,6 @@ float gradient(const float* params, float* grad, int numParams, float* targetL, 
 		enzyme_const, numSamples,
 		enzyme_const, overtoneFreqs,
 		enzyme_const, numOvertones
-		);
+	);
 	return lossOut;
 }

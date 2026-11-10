@@ -10,7 +10,7 @@
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
 std::string targetfile = "022Bb";//.wav
-bool trainMode = true;
+bool trainMode = false;
 
 
 // Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
 
 	//辨识泛音频率直接用左声道行了
 	EstimationDelayK(targetL.data(), numSamples, dispFreqs, NumDispFreqs);
-	tui.UpdateTarget(targetL.data(), numSamples, dispFreqs, NumDispFreqs);
+	tui.UpdateTarget(targetL.data(), targetR.data(), numSamples, dispFreqs, NumDispFreqs);
 
 	if (!LoadCheckpoint())
 	{
