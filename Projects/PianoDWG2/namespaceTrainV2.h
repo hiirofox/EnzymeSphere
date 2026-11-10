@@ -10,28 +10,42 @@
 
 namespace TrainPianoDWG2
 {
-	class LossPoweredByAI
+	class MonoLossState
 	{
 	public:
-		float loss(float* yL, float* yR, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
+		void Init(float* target, int numSamples, float* overtoneFreqs, int numOvertones)
 		{
-			float lossl = loss_mono(yL, targetL, numSamples, overtoneFreqs, numOvertones);
-			float lossr = loss_mono(yR, targetR, numSamples, overtoneFreqs, numOvertones);
-			return (lossl + lossr) * 0.5f;
+			numSamples_ = 0;
+			if (!target || !overtoneFreqs || numOvertones <= 0 || numSamples < 7168)
+				return;
+
+			prepareTarget(target, numSamples, overtoneFreqs, numOvertones);
+			env_.resize(refEnv_.size());
+			residual_.resize(refRipple_.size());
+			mod_.resize(refMod_.size());
+			rms22_.resize(refRms22_.size());
+			rms88_.resize(refRms88_.size());
+			re_.resize(4096);
+			im_.resize(4096);
+			for (int i = 0; i < 3; ++i)
+			{
+				yMain_[i].mag.resize(targetMain_[i].mag.size());
+				yShort_[i].mag.resize(targetShort_[i].mag.size());
+			}
+			yFlux_.mag.resize(targetFlux_.mag.size());
+			numSamples_ = numSamples;
 		}
-		float loss_mono(float* y, float* target, int numSamples, float* overtoneFreqs, int numOvertones)
+
+		float loss(const float* y)
 		{
-			if (!y || !target || !overtoneFreqs || numOvertones <= 0 || numSamples < 7168)
+			if (!y || numSamples_ == 0)
 				return 0.0f;
 
 			constexpr int mainN[3] = { 256, 1024, 4096 };
 			constexpr int shortN[3] = { 64, 128, 512 };
+			const int numSamples = numSamples_;
 			const int end = std::min(numSamples, int(0.12 * SR));
-			if (!targetReady_ || cachedTarget_ != target || cachedSamples_ != numSamples ||
-				cachedOvertones_ != numOvertones || cachedFreqs_.size() != std::size_t(numOvertones) ||
-				!std::equal(cachedFreqs_.begin(), cachedFreqs_.end(), overtoneFreqs))
-				prepareTarget(target, numSamples, overtoneFreqs, numOvertones);
-			const int parts = numOvertones;
+			const int parts = static_cast<int>(partialBins_.size());
 			const int frames = targetMain_[2].frames;
 			const int T = frames - 6;
 			const int modN = std::min(19, T / 2);
@@ -53,9 +67,6 @@ namespace TrainPianoDWG2
 				sc += std::sqrt(delta) / (r.norm + 1.0e-8) / 3.0;
 				logMagnitude += logError / double(a.mag.size()) / 3.0;
 			}
-			env_.resize(std::size_t(parts) * frames);
-			residual_.resize(std::size_t(parts) * T);
-			mod_.resize(std::size_t(parts) * modN);
 			double harmonicEnvelope = 0.0, ripple = 0.0, modulation = 0.0;
 			for (int k = 0; k < parts; ++k)
 			{
@@ -191,10 +202,7 @@ namespace TrainPianoDWG2
 		std::vector<double> refRipple_, residual_, refMod_, mod_;
 		std::vector<double> refRms22_, refRms88_, rms22_, rms88_;
 		std::vector<double> refFlux_, refEnergy_;
-		const float* cachedTarget_ = nullptr;
-		int cachedSamples_ = 0, cachedOvertones_ = 0;
-		std::vector<float> cachedFreqs_;
-		bool targetReady_ = false;
+		int numSamples_ = 0;
 		void prepareTarget(float* target, int numSamples, float* overtoneFreqs, int numOvertones)
 		{
 			constexpr int mainN[3] = { 256, 1024, 4096 };
@@ -258,11 +266,6 @@ namespace TrainPianoDWG2
 			}
 			for (double& v : refEnergy_)
 				v /= targetEnergy + 1.0e-8;
-			cachedTarget_ = target;
-			cachedSamples_ = numSamples;
-			cachedOvertones_ = numOvertones;
-			cachedFreqs_.assign(overtoneFreqs, overtoneFreqs + numOvertones);
-			targetReady_ = true;
 		}
 		static int reflect(int i, int length)
 		{
@@ -410,24 +413,49 @@ namespace TrainPianoDWG2
 		}
 	};
 
+	class LossPoweredByAI
+	{
+	public:
+		void InitTrainState(float* targetL, float* targetR, int numSamples,
+			float* overtoneFreqs, int numOvertones)
+		{
+			left_.Init(targetL, numSamples, overtoneFreqs, numOvertones);
+			right_.Init(targetR, numSamples, overtoneFreqs, numOvertones);
+		}
+
+		float loss(const float* renderL, const float* renderR)
+		{
+			const float left = left_.loss(renderL);
+			const float right = right_.loss(renderR);
+			return (left + right) * 0.5f;
+		}
+
+	private:
+		MonoLossState left_, right_;
+	};
+
 	class TrainPianoDWG2
 	{
 	private:
 		std::vector<float> renderL, renderR;
 		PianoDWG2::PianoDWG2Voice<float> voice;
 		LossPoweredByAI losseval;
+		int numSamples = 0;
 	public:
-		float loss(float* params, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
+		void InitTrainState(float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 		{
+			losseval.InitTrainState(targetL, targetR, numSamples, overtoneFreqs, numOvertones);
 			renderL.resize(numSamples);
 			renderR.resize(numSamples);
-
+			this->numSamples = numSamples;
+		}
+		float loss(float* params, int numParams)
+		{
 			voice.VecToParams(params);
 			voice.Reset();
 			voice.NoteOn(1.);
 			voice.ProcessBlock(renderL.data(), renderR.data(), numSamples);
-
-			return losseval.loss(renderL.data(), renderR.data(), targetL, targetR, numSamples, overtoneFreqs, numOvertones);
+			return losseval.loss(renderL.data(), renderR.data());
 		}
 	};
 }
