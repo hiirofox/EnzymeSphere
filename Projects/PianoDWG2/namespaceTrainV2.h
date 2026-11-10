@@ -464,10 +464,10 @@ namespace TrainPianoDWG2
 			renderR.resize(numSamples);
 			this->numSamples = numSamples;
 		}
+		void Reset() { voice.Reset(); }
 		float loss(float* params, int numParams)
 		{
 			voice.VecToParams(params);
-			voice.Reset();
 			voice.NoteOn(1.);
 			voice.ProcessBlock(renderL.data(), renderR.data(), numSamples);
 			return losseval.loss(renderL.data(), renderR.data());

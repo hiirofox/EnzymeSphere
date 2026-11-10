@@ -12,11 +12,7 @@ std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
 std::string targetfile = "022Bb";//.wav
 bool trainMode = false;
 
-
-// Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
-// to preserve the original AdamW + Train::LossSTFT training path.
-
-Adam<float> optV2(.00001);
+Adam<float> optV2(.001);
 //LBFGS<float> optV2(.0001);
 WavReader wr;
 WavWriter ww;
