@@ -820,7 +820,7 @@ namespace OptimizeMK
 			const double df = (loopDelay * omega + p.phase - TWO_PI * (i + 1)) /
 				(loopDelay + p.slope) * PianoDWG::SampleRate / TWO_PI;
 			//error += df * df * std::sqrt(double(i + 1));
-			error += df * df;
+			error += df * df * std::sqrt((double)(count - i) / count);
 		}
 		// Penalize an all-pass whose fundamental would require a negative delay.
 		const double negativeDelay = (std::min)(0.0, delay);

@@ -2,6 +2,9 @@
 #include "PianoDWG.h"
 #include "estimationDelayK.h"
 
+#include <cstring>
+#include <type_traits>
+
 extern "C" {
 	extern int enzyme_dup;
 	extern int enzyme_const;
@@ -36,14 +39,14 @@ namespace
 	using PianoDWG::TrainV2::LossState;
 	using PianoDWG::TrainV2::PrepareTarget;
 
-	Voice voice;
+	Voice voice, dVoice;
 	LossState left, right;
 
-	void render(float* params, float* audioL, float* audioR, int count)
+	void render(Voice* model, float* params, float* audioL, float* audioR, int count)
 	{
-		voice.VecToParams(params);
-		voice.NoteOn(1.0f);
-		voice.ProcessBlock(audioL, audioR, count);
+		model->VecToParams(params);
+		model->NoteOn(1.0f);
+		model->ProcessBlock(audioL, audioR, count);
 	}
 
 	void prepare(float* targetL, float* targetR, int count, int numParams)
@@ -74,7 +77,7 @@ void lossV2(float* params, float* lossOut, int numParams, float* targetL, float*
 {
 	prepare(targetL, targetR, numSamples, numParams);
 	voice.Reset();
-	render(params, left.audio.data(), right.audio.data(), numSamples);
+	render(&voice, params, left.audio.data(), right.audio.data(), numSamples);
 	LossKernel(left.audio.data(), left.components.data(), left.work.data(), &left.cache);
 	LossKernel(right.audio.data(), right.components.data(), right.work.data(), &right.cache);
 	*lossOut = left.components[0] + right.components[0];
@@ -85,14 +88,18 @@ float gradientV2(const float* params, float* grad, int numParams,
 {
 	prepare(targetL, targetR, numSamples, numParams);
 	voice.Reset();
-	render(const_cast<float*>(params), left.audio.data(), right.audio.data(), numSamples);
+	render(&voice, const_cast<float*>(params), left.audio.data(), right.audio.data(), numSamples);
 	const float lossL = audioGradient(left);
 	const float lossR = audioGradient(right);
 
 	std::fill_n(grad, numParams, 0.0f);
 	voice.Reset();
+	// The initial DSP state is independent of the parameters. Start its adjoint at zero.
+	static_assert(std::is_trivially_copyable_v<Voice>);
+	std::memset(&dVoice, 0, sizeof(dVoice));
 	__enzyme_autodiff(
 		(void*)render,
+		enzyme_dup, &voice, &dVoice,
 		enzyme_dup, params, grad,
 		enzyme_dup, left.audio.data(), left.audioGradient.data(),
 		enzyme_dup, right.audio.data(), right.audioGradient.data(),

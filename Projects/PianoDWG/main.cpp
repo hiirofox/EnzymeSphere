@@ -16,7 +16,7 @@ std::string targetfile = "048C";//.wav
 bool trainMode = false;
 
 
-Adam<float> optV2(.00001);
+Adam<float> optV2(.0005);
 //LBFGS<float> optV2(.0001);
 WavReader wr;
 WavWriter ww;

@@ -869,8 +869,8 @@ namespace PianoDWG
 			for (std::size_t i = 0; i < fit.k.size(); ++i)
 				std::printf("%s%.8f", i == 0 ? "" : ", ", fit.k[i]);
 			std::printf("} fit_loss=%.8g\n", fit.loss);
-			constexpr Sample self = Sample(0.985);
-			constexpr Sample cross = Sample(-0.002);
+			constexpr Sample self = Sample(0.99);
+			constexpr Sample cross = Sample(-0.006);
 			constexpr Sample determinant = self * self - cross * cross;
 			std::array<Sample, StringIIR::NumParams> stringParams{};
 			for (int i = 0; i < OptimizeMK::StringOrder; ++i)
