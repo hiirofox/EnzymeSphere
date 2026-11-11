@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <cstddef>
 #include <complex>
+#include <cstdio>
+#include <type_traits>
 
 #include "define.h"
 #include "estimationDelayK.h"
@@ -831,27 +833,141 @@ namespace PianoDWG
 		Sample pass[NumStrings];
 		Sample dampV = 1.0, releaseDampV = 0.985;
 	public:
-		PianoWaveguide2()
+		static constexpr int NumParams = NumStrings * (Hammer::NumParams + Delay::NumParams +
+			StringIIR::NumParams + NumStrings * MatrixIIR::NumParams + 2) + 2 * OutputNL::NumParams;
+
+		void InitParams(Sample* out, const Sample* targetL, const Sample* targetR, int numSamples,
+			float* frequencies, int& numFrequencies)
 		{
-		}
-		void InitParams(Sample* out, const Sample* target = nullptr, int numSamples = 0)
-		{
+			const int capacity = numFrequencies;
+			const auto estimate = [&](const Sample* target)
+			{
+				numFrequencies = capacity;
+				if constexpr (std::is_same_v<Sample, float>)
+				{
+					EstimationDelayK(target, numSamples, frequencies, numFrequencies);
+				}
+				else if (target && numSamples > 0)
+				{
+					const std::vector<float> reference(target, target + numSamples);
+					EstimationDelayK(reference.data(), numSamples, frequencies, numFrequencies);
+				}
+				else
+				{
+					numFrequencies = 0;
+				}
+			};
+
+			estimate(targetL);
+			if (numFrequencies == 0)
+				estimate(targetR);
+			if (numFrequencies == 0)
+				throw std::runtime_error("PianoWaveguide2: could not estimate the fundamental");
+
+			const auto fit = mkEstim(frequencies, numFrequencies, 4095);
+			std::printf("PianoWaveguide2 f0=%.6f Hz m=%d k={", frequencies[0], fit.delay);
+			for (std::size_t i = 0; i < fit.k.size(); ++i)
+				std::printf("%s%.8f", i == 0 ? "" : ", ", fit.k[i]);
+			std::printf("} fit_loss=%.8g\n", fit.loss);
+			constexpr Sample self = Sample(0.985);
+			constexpr Sample cross = Sample(-0.002);
+			constexpr Sample determinant = self * self - cross * cross;
+			std::array<Sample, StringIIR::NumParams> stringParams{};
+			for (int i = 0; i < OptimizeMK::StringOrder; ++i)
+				stringParams[i] = Sample(std::atanh(fit.k[i]));
+			stringParams[OptimizeMK::StringOrder] = Sample(1);
+
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				for (int n = 0; n < Hammer::NumParams; ++n)
+				{
+					const Sample l = targetL && n < numSamples ? targetL[n] : Sample(0);
+					const Sample r = targetR && n < numSamples ? targetR[n] : Sample(0);
+					hammer[i].hammer[n] = i == 0 ? (self * l - cross * r) / determinant
+						: (self * r - cross * l) / determinant;
+				}
+				delay[i].InitParams(nullptr, fit.delay);
+				striir[i].VecToParams(stringParams.data());
+				for (int j = 0; j < NumStrings; ++j)
+				{
+					std::array<Sample, MatrixIIR::NumParams> matrixParams{};
+					matrixParams.back() = i == j ? self : cross;
+					matiir[i][j].VecToParams(matrixParams.data());
+				}
+				gOutL[i] = i == 0 ? Sample(1) : Sample(0);
+				gOutR[i] = i == 1 ? Sample(1) : Sample(0);
+			}
+			nll.InitParams(nullptr);
+			nlr.InitParams(nullptr);
+			Reset();
+			if (out)
+				ParamsToVec(out);
 		}
 
 		void VecToParams(Sample* in)
 		{
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				hammer[i].VecToParams(in); in += Hammer::NumParams;
+				delay[i].VecToParams(in); in += Delay::NumParams;
+				striir[i].VecToParams(in); in += StringIIR::NumParams;
+				for (int j = 0; j < NumStrings; ++j)
+				{
+					matiir[i][j].VecToParams(in);
+					in += MatrixIIR::NumParams;
+				}
+				gOutL[i] = *in++;
+				gOutR[i] = *in++;
+			}
+			nll.VecToParams(in);
+			nlr.VecToParams(in + OutputNL::NumParams);
 		}
+
 		void ParamsToVec(Sample* out)
 		{
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				hammer[i].ParamsToVec(out); out += Hammer::NumParams;
+				delay[i].ParamsToVec(out); out += Delay::NumParams;
+				striir[i].ParamsToVec(out); out += StringIIR::NumParams;
+				for (int j = 0; j < NumStrings; ++j)
+				{
+					matiir[i][j].ParamsToVec(out);
+					out += MatrixIIR::NumParams;
+				}
+				*out++ = gOutL[i];
+				*out++ = gOutR[i];
+			}
+			nll.ParamsToVec(out);
+			nlr.ParamsToVec(out + OutputNL::NumParams);
 		}
+
 		void Reset()
 		{
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				hammer[i].Reset();
+				delay[i].Reset();
+				striir[i].Reset();
+				for (int j = 0; j < NumStrings; ++j)
+					matiir[i][j].Reset();
+				pass[i] = Sample(0);
+			}
+			nll.Reset();
+			nlr.Reset();
+			dampV = Sample(1);
 		}
+
 		void NoteOn(Sample velocity)
 		{
+			dampV = Sample(1);
+			for (auto& excitation : hammer)
+				excitation.NoteOn(velocity);
 		}
+
 		void NoteOff()
 		{
+			dampV = releaseDampV;
 		}
 		inline std::tuple<Sample, Sample> ProcessSample()
 		{
@@ -891,9 +1007,5 @@ namespace PianoDWG
 			}
 		}
 	};
-#define PianoWaveguide PianoWaveguide2
-
-
-
 #include "namespaceTrainV2.h"
 }

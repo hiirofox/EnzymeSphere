@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <string>
 #include <vector>
 #include "PianoDWG.h"
@@ -9,12 +12,9 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
-std::string targetfile = "022Bb";//.wav
+std::string targetfile = "048C";//.wav
 bool trainMode = false;
 
-
-// Default to the appended Enzyme v1.3 objective. Define DWG_TRAIN_V2=0
-// to preserve the original AdamW + Train::LossSTFT training path.
 
 Adam<float> optV2(.00001);
 //LBFGS<float> optV2(.0001);
@@ -22,23 +22,23 @@ WavReader wr;
 WavWriter ww;
 
 int numSamples;
-std::vector<float> trainTarget;
-std::vector<float> target;
-std::vector<float> tmp;
+std::vector<float> trainTargetL, trainTargetR;
+std::vector<float> targetL, targetR;
+std::vector<float> tmpL, tmpR;
 
-constexpr static int NumParams = PianoDWG::PianoWaveguide<float>::NumParams;
+constexpr static int NumParams = PianoDWG::PianoWaveguide2<float>::NumParams;
 
 float params[NumParams];
 float grads[NumParams];
 
-PianoDWG::PianoWaveguide<float> instance1;
+PianoDWG::PianoWaveguide2<float> instance1;
 
 float bestloss = 9999999.;
 float bestparams[NumParams];
 void SaveCheckpoint()
 {
 	printf("save checkpoint!\n");
-	FILE* pf = fopen((root + "checkpoint-" + targetfile + ".txt").c_str(), "w");
+	FILE* pf = fopen((root + "checkpoint-dwg2-" + targetfile + ".txt").c_str(), "w");
 	for (int i = 0; i < NumParams; ++i)
 		fprintf(pf, "%f, ", bestparams[i]);
 	fclose(pf);
@@ -46,26 +46,38 @@ void SaveCheckpoint()
 void RenderNow()
 {
 	printf("render wav!\n");
-	tmp.resize(target.size());
-	ww.CreateWAV(root + "now-" + targetfile + ".wav", PianoDWG::SampleRate);
+	tmpL.resize(targetL.size());
+	tmpR.resize(targetR.size());
+	ww.CreateWAV(root + "now-dwg2-" + targetfile + ".wav", PianoDWG::SampleRate);
 	instance1.VecToParams(params);
 	instance1.Reset();
 	instance1.NoteOn(1.0);
-	instance1.ProcessBlock(tmp.data(), numSamples);
-	ww.WriteBlock(tmp.data(), tmp.data(), numSamples);
+	instance1.ProcessBlock(tmpL.data(), tmpR.data(), numSamples);
+	ww.WriteBlock(tmpL.data(), tmpR.data(), numSamples);
 	ww.Close();
 	ww.CreateWAV(root + "target-" + targetfile + ".wav", PianoDWG::SampleRate);
-	ww.WriteBlock(target.data(), target.data(), numSamples);
+	ww.WriteBlock(targetL.data(), targetR.data(), numSamples);
 	ww.Close();
 }
 int LoadCheckpoint()
 {
-	FILE* pf = fopen((root + "checkpoint-" + targetfile + ".txt").c_str(), "r");
+	FILE* pf = fopen((root + "checkpoint-dwg2-" + targetfile + ".txt").c_str(), "r");
 	if (!pf)return 0;
-	for (int i = 0; i < NumParams; ++i)
-		fscanf(pf, "%f, ", &params[i]);
+	std::array<float, NumParams> loaded{};
+	for (float& value : loaded)
+	{
+		if (fscanf(pf, "%f, ", &value) != 1 || !std::isfinite(value))
+		{
+			fclose(pf);
+			return 0;
+		}
+	}
+	char extra;
+	const bool complete = fscanf(pf, " %c", &extra) == EOF;
 	fclose(pf);
-	return 1;
+	if (complete)
+		std::copy(loaded.begin(), loaded.end(), params);
+	return complete;
 }
 
 constexpr int DispFreqCapacity = 40;
@@ -84,29 +96,29 @@ int main(int argc, char* argv[])
 
 	wr.OpenWAV(root + targetfile + ".wav");
 	numSamples = (int)wr.GetNumSamples();
-	target.resize(numSamples);
-	wr.ReadBlock(target.data(), target.data(), numSamples);
+	if (numSamples < 4096) return 1;
+	targetL.resize(numSamples);
+	targetR.resize(numSamples);
+	if (wr.ReadBlock(targetL.data(), targetR.data(), numSamples) != numSamples)
+		return 1;
 	printf("numSamples=%d\n", numSamples);
-	if (numSamples <= 0) return 1;
 
-	EstimationDelayK(target.data(), numSamples, dispFreqs, NumDispFreqs);
-	tui.UpdateTarget(target.data(), numSamples, dispFreqs, NumDispFreqs);
 
-	//基频色散估计
-	//mkEstim();
+	EstimationDelayK(targetL.data(), numSamples, dispFreqs, NumDispFreqs);
+	tui.UpdateTarget(targetL.data(), targetR.data(), numSamples, dispFreqs, NumDispFreqs);
 
 	if (!LoadCheckpoint())
-	{
-		instance1.InitParams(params, target.data(), numSamples);
-	}
+		instance1.InitParams(params, targetL.data(), targetR.data(), numSamples, dispFreqs, NumDispFreqs);
 
-	int tCompensate = PianoDWG::SampleRate / dispFreqs[0];//补偿一个周期延迟
-	trainTarget.resize(tCompensate, 0.);
-	trainTarget.insert(trainTarget.end(), target.begin(), target.end());
+	const int tCompensate = static_cast<int>(PianoDWG::SampleRate / dispFreqs[0]);
+	trainTargetL.resize(tCompensate, 0.0f);
+	trainTargetR.resize(tCompensate, 0.0f);
+	trainTargetL.insert(trainTargetL.end(), targetL.begin(), targetL.end());
+	trainTargetR.insert(trainTargetR.end(), targetR.begin(), targetR.end());
 
 	for (int iter = 0, haveBest = 0; iter <= 2000; ++iter)
 	{
-		float loss = gradientV2(params, grads, NumParams, trainTarget.data(), trainTarget.size());
+		float loss = gradientV2(params, grads, NumParams, trainTargetL.data(), trainTargetR.data(), static_cast<int>(trainTargetL.size()));
 
 		if (loss < bestloss)
 		{

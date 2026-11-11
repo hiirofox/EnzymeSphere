@@ -663,9 +663,9 @@ namespace TrainV2 {
 #undef PIANODWG_V2_NOINLINE
 
 	inline LossResult Loss(float* params, int numParams, float* target, int numSamples,
-		PianoWaveguide<float>& instance, LossState& data)
+		PianoWaveguide1<float>& instance, LossState& data)
 	{
-		if (numParams != PianoWaveguide<float>::NumParams)
+		if (numParams != PianoWaveguide1<float>::NumParams)
 			throw std::runtime_error("TrainV2 requires original PianoDWG parameter count: 1959");
 		PrepareTarget(target, numSamples, data);
 		const int n = TrainingSamples(numSamples);

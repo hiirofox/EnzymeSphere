@@ -10,7 +10,9 @@ extern "C" {
 
 void lossMK(float* params, float* lossOut, int numParams, float* target, int numTargets)
 {
-	*lossOut = LossMK(params, target, numTargets);
+	*lossOut = numParams == OptimizeMK::StringOrder
+		? OptimizeMK::string_loss(params, target, numTargets)
+		: LossMK(params, target, numTargets);
 }
 float gradientMK(const float* params, float* grad, int numParams, float* target, int numTargets)
 {
@@ -27,67 +29,73 @@ float gradientMK(const float* params, float* grad, int numParams, float* target,
 	return lossOut;
 }
 
-// -----------------------------------------------------------------------------
-// TrainV2 persistent state. These are the only model/cache instances used by V2.
-// Same design as original loss.cpp: one persistent model and one persistent batch.
-// -----------------------------------------------------------------------------
-static PianoDWG::PianoWaveguide<float> instanceV2;
-static PianoDWG::TrainV2::LossState dataV2;
-
-// Renderer reverse pass: directly reuses instanceV2. No local PianoWaveguide.
-static void renderV2_AD(float* params, float* audio, int numSamples)
+namespace
 {
-	instanceV2.VecToParams(params);
-	instanceV2.Reset();
-	instanceV2.NoteOn(1.0f);
-	instanceV2.ProcessBlock(audio, numSamples);
+	using Voice = PianoDWG::PianoWaveguide2<float>;
+	using PianoDWG::TrainV2::LossKernel;
+	using PianoDWG::TrainV2::LossState;
+	using PianoDWG::TrainV2::PrepareTarget;
+
+	Voice voice;
+	LossState left, right;
+
+	void render(float* params, float* audioL, float* audioR, int count)
+	{
+		voice.VecToParams(params);
+		voice.NoteOn(1.0f);
+		voice.ProcessBlock(audioL, audioR, count);
+	}
+
+	void prepare(float* targetL, float* targetR, int count, int numParams)
+	{
+		if (numParams != Voice::NumParams)
+			throw std::runtime_error("PianoWaveguide2 parameter count does not match");
+		PrepareTarget(targetL, count, left);
+		PrepareTarget(targetR, count, right);
+	}
+
+	float audioGradient(LossState& channel)
+	{
+		std::fill(channel.audioGradient.begin(), channel.audioGradient.end(), 0.0f);
+		std::fill(channel.workGradient.begin(), channel.workGradient.end(), 0.0);
+		channel.componentsGradient.fill(0.0f);
+		channel.componentsGradient[0] = 1.0f;
+		__enzyme_autodiff(
+			(void*)LossKernel,
+			enzyme_dup, channel.audio.data(), channel.audioGradient.data(),
+			enzyme_dup, channel.components.data(), channel.componentsGradient.data(),
+			enzyme_dup, channel.work.data(), channel.workGradient.data(),
+			enzyme_const, &channel.cache);
+		return channel.components[0];
+	}
 }
 
-void lossV2(float* params, float* lossOut, int numParams, float* target, int numSamples)
+void lossV2(float* params, float* lossOut, int numParams, float* targetL, float* targetR, int numSamples)
 {
-	auto [totalLoss, sc, logMagnitude, harmonicEnvelope, ripple, modulation,
-		attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming] =
-		PianoDWG::TrainV2::Loss(params, numParams, target, numSamples, instanceV2, dataV2);
-	*lossOut = totalLoss;
+	prepare(targetL, targetR, numSamples, numParams);
+	voice.Reset();
+	render(params, left.audio.data(), right.audio.data(), numSamples);
+	LossKernel(left.audio.data(), left.components.data(), left.work.data(), &left.cache);
+	LossKernel(right.audio.data(), right.components.data(), right.work.data(), &right.cache);
+	*lossOut = left.components[0] + right.components[0];
 }
 
 float gradientV2(const float* params, float* grad, int numParams,
-	float* target, int numSamples)
+	float* targetL, float* targetR, int numSamples)
 {
-	if (numParams != PianoDWG::PianoWaveguide<float>::NumParams)
-		throw std::runtime_error("TrainV2 gradient requires original PianoDWG parameter count: 1959");
+	prepare(targetL, targetR, numSamples, numParams);
+	voice.Reset();
+	render(const_cast<float*>(params), left.audio.data(), right.audio.data(), numSamples);
+	const float lossL = audioGradient(left);
+	const float lossR = audioGradient(right);
 
-	// Loss() prepares Target once, renders through instanceV2, and fills all 12 components.
-	const PianoDWG::TrainV2::LossResult result = PianoDWG::TrainV2::Loss(
-		const_cast<float*>(params), numParams, target, numSamples, instanceV2, dataV2);
-	const float value = std::get<0>(result);
-
-	std::fill(dataV2.audioGradient.begin(), dataV2.audioGradient.end(), 0.0f);
-	std::fill(dataV2.workGradient.begin(), dataV2.workGradient.end(), 0.0);
-	dataV2.componentsGradient.fill(0.0f);
-	dataV2.componentsGradient[0] = 1.0f;
-	for (int i = 0; i < numParams; ++i) grad[i] = 0.0f;
-
-	// Pass 1: Enzyme differentiates the one canonical LossKernel dL/dAudio.
+	std::fill_n(grad, numParams, 0.0f);
+	voice.Reset();
 	__enzyme_autodiff(
-		(void*)PianoDWG::TrainV2::LossKernel,
-		enzyme_dup, dataV2.audio.data(), dataV2.audioGradient.data(),
-		enzyme_dup, dataV2.components.data(), dataV2.componentsGradient.data(),
-		enzyme_dup, dataV2.work.data(), dataV2.workGradient.data(),
-		enzyme_const, &dataV2.cache);
-
-	//auto [total, sc, logMagnitude, harmonicEnvelope, ripple, modulation,
-	//	attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming] = dataV2.components;
-	//printf("gradientV2: total=%.5f sc=%.5f logMagnitude=%.5f harmonicEnvelope=%.5f ripple=%.5f modulation=%.5f attackBandSC=%.5f attackWave=%.5f shortRms=%.5f highBandFlux=%.5f positiveSlope=%.5f energyTiming=%.5f\n",
-	//	total, sc, logMagnitude, harmonicEnvelope, ripple, modulation,
-	//	attackBandSC, attackWave, shortRms, highBandFlux, positiveSlope, energyTiming);
-
-	// Pass 2: Enzyme differentiates the original renderer through persistent instanceV2.
-	__enzyme_autodiff(
-		(void*)renderV2_AD,
-		enzyme_dup, const_cast<float*>(params), grad,
-		enzyme_dup, dataV2.audio.data(), dataV2.audioGradient.data(),
-		enzyme_const, PianoDWG::TrainV2::TrainingSamples(numSamples));//, dataV2
-
-	return value * 30.;
+		(void*)render,
+		enzyme_dup, params, grad,
+		enzyme_dup, left.audio.data(), left.audioGradient.data(),
+		enzyme_dup, right.audio.data(), right.audioGradient.data(),
+		enzyme_const, numSamples);
+	return lossL + lossR;
 }
