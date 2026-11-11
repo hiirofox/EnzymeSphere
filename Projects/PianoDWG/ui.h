@@ -211,7 +211,30 @@ private:
 		int fftSize = 0;
 		int numSamples = 0;
 	};
-
+	static void FFT(float* re, float* im, int n, int inverse) {
+		for (int i = 1, j = 0; i < n; i++) {
+			int bit = n >> 1;
+			for (; j & bit; bit >>= 1) j ^= bit;
+			j ^= bit;
+			if (i < j) { std::swap(re[i], re[j]); std::swap(im[i], im[j]); }
+		}
+		for (int len = 2; len <= n; len <<= 1) {
+			float ang = 2.0 * acos(-1.0) / len * (inverse ? 1 : -1);
+			float wlen_r = cos(ang), wlen_i = sin(ang);
+			for (int i = 0; i < n; i += len) {
+				float wr = 1, wi = 0;
+				for (int j = 0; j < len / 2; j++) {
+					int u = i + j, v = i + j + len / 2;
+					float vr = re[v] * wr - im[v] * wi, vi = re[v] * wi + im[v] * wr;
+					re[v] = re[u] - vr; im[v] = im[u] - vi;
+					re[u] += vr; im[u] += vi;
+					float t = wr * wlen_r - wi * wlen_i;
+					wi = wr * wlen_i + wi * wlen_r; wr = t;
+				}
+			}
+		}
+		if (inverse) for (int i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+	}
 	static std::vector<float> ComputeSpectrum(const float* samples, int count, int n)
 	{
 		std::vector<float> re(n, 0.0f), im(n, 0.0f);
@@ -223,7 +246,7 @@ private:
 			//È¥µôÎ²²¿
 			//re[count + i - 1000] *= 0.5 - 0.5 * cosf((float)i / 1000.0 * 3.141592653589 + 3.141592653589);
 		}
-		PianoDWG::Train::FFT(re.data(), im.data(), n, 0);
+		FFT(re.data(), im.data(), n, 0);
 		std::vector<float> spectrum(n / 2 + 1);
 		for (int k = 0; k <= n / 2; ++k)
 		{

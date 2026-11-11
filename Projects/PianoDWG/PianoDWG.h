@@ -498,7 +498,7 @@ namespace PianoDWG
 		}
 	};
 	template <typename Sample>
-	class PianoWaveguide
+	class PianoWaveguide1
 	{
 	public:
 		using Hammer = HammerModel2<Sample>;
@@ -534,7 +534,7 @@ namespace PianoDWG
 		Sample pass[NumStrings];//״̬
 		Sample damp = 1.;
 	public:
-		PianoWaveguide()
+		PianoWaveguide1()
 		{
 			//SetBaseFreq(261.63);//C4
 			Reset();
@@ -719,186 +719,140 @@ namespace PianoDWG
 		}
 	};
 
-	namespace TrainSimple
+
+	template<typename Sample, int MaxDelayTime>
+	class DelayLineDWG2
 	{
-		inline void FFT(float* re, float* im, int N, int inv)
-		{
-			for (int i = 1, j = 0; i < N; i++) {
-				int b = N >> 1;
-				for (; j & b; b >>= 1) j ^= b;
-				j ^= b;
-				if (i < j) {
-					float t = re[i]; re[i] = re[j]; re[j] = t;
-					t = im[i]; im[i] = im[j]; im[j] = t;
-				}
-			}
-			for (int len = 2; len <= N; len <<= 1) {
-				float a = (inv ? 2.0f : -2.0f) * PI / len;
-				float cr = cosf(a), ci = sinf(a);
-				for (int i = 0; i < N; i += len) {
-					float wr = 1, wi = 0;
-					for (int j = 0; j < len / 2; j++) {
-						int u = i + j, v = u + len / 2;
-						float tr = wr * re[v] - wi * im[v];
-						float ti = wr * im[v] + wi * re[v];
-						re[v] = re[u] - tr; im[v] = im[u] - ti;
-						re[u] += tr; im[u] += ti;
-						float t = wr * cr - wi * ci;
-						wi = wr * ci + wi * cr;
-						wr = t;
-					}
-				}
-			}
-			if (inv)
-				for (int i = 0; i < N; i++) {
-					re[i] /= N;
-					im[i] /= N;
-				}
-		}
+	private:
+		Sample buffer[MaxDelayTime + 10];
+		int pos = 0;
+		int delay = 0;
+	public:
+		constexpr static int NumParams = 1;
 
-		inline float LossSimple(float* params, int numParams, float* target, int numSamples, PianoWaveguide<float>* instance)
+		void InitParams(Sample* out, int delaySample)
 		{
-			instance->VecToParams(params);
-			instance->Reset();
-			instance->NoteOn(1.0f);
-			double mse = 0.;
-			double g = 1. / numSamples;
-			for (int i = 0; i < numSamples; ++i)
-			{
-				float y = instance->ProcessSample();
-				float e = y - target[i];
-				mse += e * e * g;
-			}
-			return (float)mse;
+			delay = delaySample;
+			if (out) ParamsToVec(out);
 		}
-	}
-
-	namespace Train
+		void VecToParams(Sample* in)
+		{
+			SetDelay((int)in[0]);
+		}
+		void ParamsToVec(Sample* out)
+		{
+			out[0] = (Sample)delay;
+		}
+		void SetDelay(int d)
+		{
+			delay = d;
+			if (delay < 0) delay = 0;
+			if (delay >= MaxDelayTime) delay = MaxDelayTime - 1;
+		}
+		Sample ProcessSample(Sample x)
+		{
+			if (delay < 1)return x;
+			Sample y = buffer[pos];
+			buffer[pos] = x;
+			++pos;
+			if (pos >= delay) pos = 0;
+			return y;
+		}
+		void Reset()
+		{
+			for (int i = 0; i < MaxDelayTime; ++i) buffer[i] = 0.;
+			volatile int& resetPos = pos;
+			resetPos = 0;
+		}
+	};
+	template<typename Sample, int TableSize >
+	class HammerModelDWG2
 	{
-		inline void FFT(float* re, float* im, int N, int inv)
+	public:
+		constexpr static int NumParams = TableSize;
+		Sample hammer[TableSize] = {};
+		int pos = 0;
+		Sample g = Sample(0);
+	public:
+		void InitParams(Sample* out)
 		{
-			for (int i = 1, j = 0; i < N; i++) {
-				int b = N >> 1;
-				for (; j & b; b >>= 1) j ^= b;
-				j ^= b;
-				if (i < j) {
-					float t = re[i]; re[i] = re[j]; re[j] = t;
-					t = im[i]; im[i] = im[j]; im[j] = t;
-				}
-			}
-			for (int len = 2; len <= N; len <<= 1) {
-				float a = (inv ? 2.0f : -2.0f) * PI / len;
-				float cr = cosf(a), ci = sinf(a);
-				for (int i = 0; i < N; i += len) {
-					float wr = 1, wi = 0;
-					for (int j = 0; j < len / 2; j++) {
-						int u = i + j, v = u + len / 2;
-						float tr = wr * re[v] - wi * im[v];
-						float ti = wr * im[v] + wi * re[v];
-						re[v] = re[u] - tr; im[v] = im[u] - ti;
-						re[u] += tr; im[u] += ti;
-						float t = wr * cr - wi * ci;
-						wi = wr * ci + wi * cr;
-						wr = t;
-					}
-				}
-			}
-			if (inv)
-				for (int i = 0; i < N; i++) {
-					re[i] /= N;
-					im[i] /= N;
-				}
-		}
-
-		struct LossSTFTData
-		{
-			constexpr static int MaxFFTSize = 8192;
-			std::array<float, 10000000> audio{};
-			std::array<float, MaxFFTSize> yr{};
-			std::array<float, MaxFFTSize> yi{};
-			std::array<float, MaxFFTSize> tr{};
-			std::array<float, MaxFFTSize> ti{};
-			std::array<float, MaxFFTSize> window{};
-		};
-
-		inline float LossSTFT(float* params, int numParams, float* target, int numSamples, PianoWaveguide<float>* instance, LossSTFTData* data)
-		{
-			(void)numParams;
-
-			if (numSamples <= 0) return 0.0f;
-			if (!data || !target || !instance) return std::numeric_limits<float>::quiet_NaN();
-
-			constexpr int MaxFFTSize = 8192;
-			constexpr float MagEps = 1e-7f;
-			constexpr float NormEps = 1e-7f;
-			constexpr float AbsEps = 1e-4f;
-
-			// Generate audio.
-			instance->VecToParams(params);
-			instance->Reset();
-			instance->NoteOn(1.0f);
-
-			for (int i = 0; i < numSamples; ++i)
-				data->audio[i] = instance->ProcessSample();
-
-			// Calculate multi-resolution STFT loss.
-			auto CalcScale = [&](int windowSize) -> float
-				{
-					int hop = windowSize / 2;
-					float* yr = data->yr.data();
-					float* yi = data->yi.data();
-					float* tr = data->tr.data();
-					float* ti = data->ti.data();
-					float* window = data->window.data();
-
-					for (int i = 0; i < windowSize; ++i)
-						window[i] = 0.5f - 0.5f * cosf(2.0f * PI * i / windowSize);
-
-					double l = 0.;
-					for (int i = 0; i < numSamples - windowSize; i += hop)
-					{
-						for (int j = 0; j < windowSize; ++j)
-						{
-							yr[j] = data->audio[i + j] * window[j];
-							yi[j] = 0.;
-							tr[j] = target[i + j] * window[j];
-							ti[j] = 0.;
-						}
-						FFT(yr, yi, windowSize, 0);
-						FFT(tr, ti, windowSize, 0);
-						double l1 = 0.;
-						for (int j = 1; j < windowSize / 2; ++j)
-						{
-							float magy = std::sqrt(yr[j] * yr[j] + yi[j] * yi[j]);
-							float magt = std::sqrt(tr[j] * tr[j] + ti[j] * ti[j]);
-							float lmy = std::log(magy + 1e-5);
-							float lmt = std::log(magt + 1e-5);
-							float vl = (lmy - lmt) / (windowSize / 2);
-							float v = (magy - magt) / (windowSize / 2);
-							l1 += vl * vl + v * v * 10.;
-						}
-						l += l1 / (numSamples / hop);
-					}
-					return l;
-				};
-
-			//float l0 = CalcScale(512);
-			float l1 = CalcScale(512);
-			//float l2 = CalcScale(8192);
-
-			double tmse = 0.;
-			for (int i = 0; i < numSamples; ++i)
+			for (int i = 0; i < TableSize; ++i) hammer[i] = (float)rand() / RAND_MAX * (rand() % 2 ? 1 : -1) / TableSize;
+			//for (int i = 0; i < TableSize; ++i) hammer[i] = 0.;
+			//ammer[0] = 1.;
+			if (out)
 			{
-				double a = data->audio[i];
-				double t = target[i];
-				double v = a - t;
-				tmse += v * v / numSamples;
+				ParamsToVec(out);
 			}
-			tmse *= 1000.;
-
-			return l1 * 1000.;
 		}
-	}
+		void VecToParams(Sample* in)
+		{
+			for (int i = 0; i < TableSize; ++i) hammer[i] = in[i];
+		}
+		void ParamsToVec(Sample* out)
+		{
+			for (int i = 0; i < TableSize; ++i) out[i] = hammer[i];
+		}
+		void Reset()
+		{
+			pos = 0;
+		}
+		void NoteOn(Sample velocity)
+		{
+			pos = 0;
+			g = velocity;
+		}
+		inline Sample ProcessSample()
+		{
+			if (pos >= TableSize) return Sample(0);
+			const Sample x = hammer[pos] * g;
+			++pos;
+			return x;
+		}
+	};
+	template <typename Sample>
+	class PianoWaveguide2
+	{
+	public:
+	public:
+		PianoWaveguide2()
+		{
+		}
+		void InitParams(Sample* out, const Sample* target = nullptr, int numSamples = 0)
+		{
+		}
+
+		void VecToParams(Sample* in)
+		{
+		}
+		void ParamsToVec(Sample* out)
+		{
+		}
+		void Reset()
+		{
+		}
+		void NoteOn(Sample velocity)
+		{
+		}
+		void NoteOff()
+		{
+		}
+		std::tuple<Sample, Sample> ProcessSample()
+		{
+
+		}
+		void ProcessBlock(Sample* outl, Sample* outr, int NumSamples)
+		{
+			for (int i = 0; i < NumSamples; ++i)
+			{
+				auto [l, r] = ProcessSample();
+				outl[i] = l;
+				outr[i] = r;
+			}
+		}
+	};
+#define PianoWaveguide PianoWaveguide2
+
+
 
 #include "namespaceTrainV2.h"
 }
