@@ -813,6 +813,23 @@ namespace PianoDWG
 	class PianoWaveguide2
 	{
 	public:
+		using Hammer = HammerModelDWG2<Sample, 2048>;
+		using Delay = DelayLineDWG2<Sample, 4096>;
+		using StringIIR = LatticeIIR<Sample, 8>;
+		using MatrixIIR = LatticeIIR<Sample, 2>;
+		using OutputNL = NLCells2<Sample>;
+
+		constexpr static int NumStrings = 2;
+		Hammer hammer[NumStrings];
+		Delay delay[NumStrings];
+		StringIIR striir[NumStrings];
+		MatrixIIR matiir[NumStrings][NumStrings];
+		Sample gOutL[NumStrings];
+		Sample gOutR[NumStrings];
+		OutputNL nll, nlr;
+
+		Sample pass[NumStrings];
+		Sample dampV = 1.0, releaseDampV = 0.985;
 	public:
 		PianoWaveguide2()
 		{
@@ -836,9 +853,33 @@ namespace PianoDWG
 		void NoteOff()
 		{
 		}
-		std::tuple<Sample, Sample> ProcessSample()
+		inline std::tuple<Sample, Sample> ProcessSample()
 		{
-
+			for (int i = 0; i < NumStrings; ++i)
+				pass[i] += hammer[i].ProcessSample();
+			for (int i = 0; i < NumStrings; ++i)
+				pass[i] = delay[i].ProcessSample(pass[i]);
+			for (int i = 0; i < NumStrings; ++i)
+				pass[i] = striir[i].ProcessSample(pass[i]);
+			Sample tmp[NumStrings];
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				Sample v = 0.;
+				for (int j = 0; j < NumStrings; ++j)
+					v += matiir[i][j].ProcessSample(pass[j]);
+				tmp[i] = v;
+			}
+			for (int i = 0; i < NumStrings; ++i)
+				pass[i] = tmp[i] * dampV;
+			Sample l = 0., r = 0.;
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				l += tmp[i] * gOutL[i];
+				r += tmp[i] * gOutR[i];
+			}
+			l = nll.ProcessSample(l);
+			r = nlr.ProcessSample(r);
+			return { l,r };
 		}
 		void ProcessBlock(Sample* outl, Sample* outr, int NumSamples)
 		{
