@@ -502,7 +502,7 @@ namespace PianoDWG2
 				? double(SampleRate) / double(f0)
 				: double(firCenter + 1);
 			const int delaySamples = static_cast<int>(
-				std::clamp(std::round(period - firCenter), 1.0, double(maxDelay)));
+				std::clamp(std::round(period - firCenter - 1), 0.0, double(maxDelay)));
 			const int loopSamples = delaySamples + firCenter;
 
 			// As in PianoDWG, use strong self-feedback and weak cross-coupling.

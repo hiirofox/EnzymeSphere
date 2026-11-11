@@ -9,10 +9,10 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
-std::string targetfile = "108C";//.wav
-bool trainMode = false;
+std::string targetfile = "048C";//.wav
+bool trainMode = true;
 
-Adam<float> optV2(.0005);
+Adam<float> optV2(.0001);
 //LBFGS<float> optV2(.0001);
 WavReader wr;
 WavWriter ww;
@@ -130,7 +130,7 @@ int main(int argc, char* argv[])
 	trainTargetL.insert(trainTargetL.end(), targetL.begin(), targetL.end());
 	trainTargetR.insert(trainTargetR.end(), targetR.begin(), targetR.end());
 
-	for (int iter = 0, haveBest = 0; iter <= 2000; ++iter)
+	for (int iter = 0, haveBest = 0; iter <= 3000; ++iter)
 	{
 		float loss = gradient(params, grads, NumParams, trainTargetL.data(), trainTargetR.data(), trainTargetL.size(), dispFreqs, NumDispFreqs);
 		//MarkGrads(grads, 4);

@@ -20,7 +20,7 @@ class PianoDWGEditor : public D2DCanvas {
     }
     D2D1_RECT_F KeyRect(int note, float width, float height) const {
         int whites = 0;
-        for (int n = 21; n < note; ++n) if (!Black(n)) ++whites;
+        for (int n = PianoDWGParams::FirstNote; n < note; ++n) if (!Black(n)) ++whites;
         const float w = (width - 32.f) / 52.f;
         const float x = 16.f + whites * w;
         return Black(note) ? D2D1::RectF(x - w * .32f, height - 240.f, x + w * .32f, height - 105.f)
@@ -31,10 +31,11 @@ class PianoDWGEditor : public D2DCanvas {
         // Map physical mouse coordinates to the same logical layout used for painting.
         if (rc.right <= 0 || rc.bottom <= 0) return -1;
         x *= 640.f / rc.right; y *= 480.f / rc.bottom;
-        for (int pass = 0; pass < 2; ++pass) for (int n = 21; n <= 108; ++n) {
+        for (int pass = 0; pass < 2; ++pass) for (int n = PianoDWGParams::FirstNote; n <= PianoDWGParams::LastNote; ++n) {
             if (Black(n) != (pass == 0)) continue;
             const auto r = KeyRect(n, 640.f, 480.f);
-            if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return n;
+            if (x >= r.left && x < r.right && y >= r.top && y < r.bottom)
+                return PianoDWGParams::RowForNote(n) >= 0 ? n : -1;
         }
         return -1;
     }
@@ -76,21 +77,26 @@ protected:
         t.Clear(D2D1::ColorF(0x171c26));
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
         if (FAILED(t.CreateSolidColorBrush(D2D1::ColorF(0xe8edf5), brush.GetAddressOf()))) return;
-        Text(t, brush.Get(), L"PianoDWG", titleFont.Get(), D2D1::RectF(24, 24, size.width - 24, 70));
+        Text(t, brush.Get(), L"PianoDWG2", titleFont.Get(), D2D1::RectF(24, 24, size.width - 24, 70));
         brush->SetColor(D2D1::ColorF(0x9daec4));
-        Text(t, brush.Get(), L"PIANO 1  /  TRAINED WAVEGUIDE", bodyFont.Get(), D2D1::RectF(26, 78, size.width - 24, 104));
-        Text(t, brush.Get(), L"88 keys  |  16 voices  |  Model: 22050 Hz", bodyFont.Get(), D2D1::RectF(26, 112, size.width - 24, 138));
+        wchar_t modelInfo[96]{};
+        swprintf_s(modelInfo, L"%d trained keys  |  %d voices  |  Model: %.0f Hz",
+                   PianoDWGParams::NumNotes, PianoDWGSynth::NumPolys, PianoDWGSynth::DwgSampleRate);
+        Text(t, brush.Get(), modelInfo, bodyFont.Get(), D2D1::RectF(26, 81, size.width - 24, 107));
         Text(t, brush.Get(), L"Click or drag to play. Hold SPACE for sustain.", bodyFont.Get(), D2D1::RectF(26, 153, size.width - 24, 179));
         Text(t, brush.Get(), L"Host MIDI: Note On / Off + CC64", bodyFont.Get(), D2D1::RectF(26, 181, size.width - 24, 207));
         brush->SetColor(D2D1::ColorF(proc.PedalLit() ? 0x62d9b1 : 0x65758a));
         Text(t, brush.Get(), proc.PedalLit() ? L"SUSTAIN  ON" : L"SUSTAIN  OFF", bodyFont.Get(),
              D2D1::RectF(size.width - 155, 36, size.width - 20, 65));
-        for (int pass = 0; pass < 2; ++pass) for (int n = 21; n <= 108; ++n) {
+        for (int pass = 0; pass < 2; ++pass) for (int n = PianoDWGParams::FirstNote; n <= PianoDWGParams::LastNote; ++n) {
             const bool black = Black(n);
             if (black != (pass == 1)) continue;
             const auto r = KeyRect(n, size.width, size.height);
             const bool lit = proc.KeyLit(n) || n == mouseNote;
-            brush->SetColor(D2D1::ColorF(lit ? 0x62d9b1 : black ? 0x222936 : 0xe8edf5));
+            const bool playable = PianoDWGParams::RowForNote(n) >= 0;
+            const auto keyColor = playable ? (black ? 0x222936 : 0xe8edf5)
+                                           : (black ? 0x191e28 : 0x788395);
+            brush->SetColor(D2D1::ColorF(lit ? 0x62d9b1 : keyColor));
             t.FillRectangle(r, brush.Get());
             brush->SetColor(D2D1::ColorF(0x171c26));
             t.DrawRectangle(r, brush.Get(), .8f);

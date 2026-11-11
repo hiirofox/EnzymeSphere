@@ -6,6 +6,7 @@
 extern "C" {
 	extern int enzyme_dup;
 	extern int enzyme_const;
+	extern int enzyme_dupnoneed;
 	void __enzyme_autodiff(void*, ...);
 }
 
@@ -14,7 +15,7 @@ static TrainPianoDWG2::TrainPianoDWG2 shadowTrain, initialShadow;
 int isInit = 0;
 static void lossAD(TrainPianoDWG2::TrainPianoDWG2* state, float* params, float* lossOut, int numParams)
 {
-	*lossOut = state->loss(params, numParams);
+	*lossOut = state->loss(params, numParams) * 300.;
 }
 float gradient(const float* params, float* grad, int numParams, float* targetL, float* targetR, int numSamples, float* overtoneFreqs, int numOvertones)
 {
