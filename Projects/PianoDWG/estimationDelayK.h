@@ -819,7 +819,8 @@ namespace OptimizeMK
 			// Convert phase mismatch at the measured partial to a local frequency error.
 			const double df = (loopDelay * omega + p.phase - TWO_PI * (i + 1)) /
 				(loopDelay + p.slope) * PianoDWG::SampleRate / TWO_PI;
-			error += df * df * std::sqrt(double(i + 1));
+			//error += df * df * std::sqrt(double(i + 1));
+			error += df * df;
 		}
 		// Penalize an all-pass whose fundamental would require a negative delay.
 		const double negativeDelay = (std::min)(0.0, delay);
@@ -932,55 +933,56 @@ inline StringDispersionFit mkEstim(float* frequencies, int count, int maxDelay)
 	float bestLoss = OptimizeMK::string_loss(result.k.data(), frequencies, valid);
 	if (valid > 1)
 	{
-		constexpr int randomBasins = 500;
-		constexpr int stepsPerBasin = 2000;
+		constexpr int randomBasins = 1000;
+		constexpr int stepsPerBasin = 500;
+		constexpr int refinementSteps = 2000;
+		constexpr float minK = -0.995f;
+		constexpr float maxK = 0.995f;
 		std::mt19937 random(0x44574732u);
-		std::uniform_real_distribution<float> broad(-0.995f, 0.995f);
-		std::uniform_real_distribution<float> center(-0.995f, 0.995f);
-		std::uniform_real_distribution<float> spread(-0.995f, 0.995f);
+		std::uniform_real_distribution<float> initialK(minK, maxK);
 		int bestBasin = 0;
 
-		// Basin zero starts with a pure delay. Half the random starts are
-		// independent per stage, and half cluster around a random center.
-		for (int basin = 0; basin <= randomBasins; ++basin)
-		{
-			std::array<float, OptimizeMK::StringOrder> coefficients{};
-			if (basin > 0 && basin <= randomBasins / 2)
+		bestLoss = (std::numeric_limits<float>::infinity)();
+		const auto optimize = [&](std::array<float, OptimizeMK::StringOrder> coefficients,
+			int steps, float learningRate, int basin)
 			{
-				for (float& k : coefficients)
-					k = broad(random);
-			}
-			else if (basin > 0)
-			{
-				const float mean = center(random);
-				for (float& k : coefficients)
-					k = std::clamp(mean + spread(random), -0.98f, 0.98f);
-			}
-
-			Adam<float> optimizer(0.0005f);
-			std::array<float, OptimizeMK::StringOrder> grads{};
-			for (int step = 0; step <= stepsPerBasin; ++step)
-			{
-				const float value = gradientMK(coefficients.data(), grads.data(),
-					OptimizeMK::StringOrder, frequencies, valid);
-				if (!std::isfinite(value))
-					break;
-				if (value < bestLoss)
+				Adam<float> optimizer(learningRate);
+				std::array<float, OptimizeMK::StringOrder> grads{};
+				for (int step = 0; step <= steps; ++step)
 				{
-					bestLoss = value;
-					result.k = coefficients;
-					bestBasin = basin;
+					const float value = step == steps
+						? OptimizeMK::string_loss(coefficients.data(), frequencies, valid)
+						: gradientMK(coefficients.data(), grads.data(),
+							OptimizeMK::StringOrder, frequencies, valid);
+					if (!std::isfinite(value))
+						break;
+					if (value < bestLoss)
+					{
+						bestLoss = value;
+						result.k = coefficients;
+						bestBasin = basin;
+					}
+					if (step == steps || !std::all_of(grads.begin(), grads.end(),
+						[](float grad) { return std::isfinite(grad); }))
+						break;
+					optimizer.Update(coefficients.data(), grads.data(), OptimizeMK::StringOrder, value);
+					for (float& k : coefficients)
+						k = std::clamp(k, minK, maxK);
 				}
-				if (step == stepsPerBasin || !std::all_of(grads.begin(), grads.end(),
-					[](float grad) { return std::isfinite(grad); }))
-					break;
-				optimizer.Update(coefficients.data(), grads.data(), OptimizeMK::StringOrder, value);
-				for (float& k : coefficients)
-					k = std::clamp(k, -0.995f, 0.995f);
-			}
+			};
+
+		for (int basin = 1; basin <= randomBasins; ++basin)
+		{
+			std::array<float, OptimizeMK::StringOrder> coefficients;
+			for (float& k : coefficients)
+				k = initialK(random);
+			optimize(coefficients, stepsPerBasin, 0.005f, basin);
 		}
-		std::printf("String dispersion best basin=%d of %d (0 = zero start)\n",
-			bestBasin, randomBasins + 1);
+
+		const float searchLoss = bestLoss;
+		optimize(result.k, refinementSteps, 0.0005f, bestBasin);
+		std::printf("String dispersion best basin=%d/%d search_loss=%.8g refined_loss=%.8g\n",
+			bestBasin, randomBasins, searchLoss, bestLoss);
 	}
 
 	const double delay = OptimizeMK::string_delay(frequencies[0], result.k.data());
