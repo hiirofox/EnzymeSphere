@@ -16,7 +16,7 @@ std::string targetfile = "048C";//.wav
 bool trainMode = false;
 
 
-Adam<float> optV2(.0005);
+Adam<float> optV2(.0001);
 //LBFGS<float> optV2(.0001);
 WavReader wr;
 WavWriter ww;
@@ -142,7 +142,7 @@ int main(int argc, char* argv[])
 		optV2.Update(params, grads, NumParams, loss);
 		float losg = 0.;
 		for (int i = 0; i < NumParams; ++i)losg += grads[i] * grads[i];
-		printf("%s | iter:%d loss=%f losg=%f\n", targetfile.c_str(), iter, loss, losg);
+		printf("%s | iter:%d loss=%f losg=%f\n", targetfile.c_str(), iter, loss * 30., losg);
 	}
 	return 1;
 }

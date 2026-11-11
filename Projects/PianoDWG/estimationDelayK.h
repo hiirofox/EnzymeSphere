@@ -914,7 +914,7 @@ inline std::tuple<float, float, float, float, float> mkEstim(float* dispFreqs, i
 
 struct StringDispersionFit
 {
-	int delay = 0;
+	float delay = 0;
 	float loss = (std::numeric_limits<float>::infinity)();
 	std::array<float, OptimizeMK::StringOrder> k{};
 };
@@ -986,7 +986,7 @@ inline StringDispersionFit mkEstim(float* frequencies, int count, int maxDelay)
 	}
 
 	const double delay = OptimizeMK::string_delay(frequencies[0], result.k.data());
-	result.delay = static_cast<int>(std::round(std::clamp(delay, 0.0, double(maxDelay))));
+	result.delay = static_cast<float>(std::clamp(delay, 0.0, double(maxDelay)));
 	result.loss = bestLoss;
 	return result;
 }

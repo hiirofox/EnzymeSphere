@@ -294,7 +294,8 @@ namespace PianoDWG
 	class DelayLine2
 	{
 		static_assert(MaxDelayTime >= 1, "MaxDelayTime must be positive");
-		static constexpr int Capacity = MaxDelayTime + 1;
+		// Keep the two older Hermite taps available at the upper delay limit.
+		static constexpr int Capacity = MaxDelayTime + 3;
 		Sample buffer[Capacity];
 		Sample delayTime = Sample(1);
 		int writePos = 0;
@@ -314,15 +315,16 @@ namespace PianoDWG
 			delayTime = value;
 		}
 		constexpr static int NumParams = 1;
-		void InitParams(float* out)
+		void InitParams(Sample* out)
 		{
-			SetDelayTime(300.);
+			SetDelayTime(Sample(300));
+			if (out) ParamsToVec(out);
 		}
-		void ParamsToVec(float* out)
+		void ParamsToVec(Sample* out)
 		{
 			out[0] = delayTime;
 		}
-		void VecToParams(float* in)
+		void VecToParams(Sample* in)
 		{
 			SetDelayTime(in[0]);
 		}
@@ -351,13 +353,16 @@ namespace PianoDWG
 			const Sample t = delayTime - Sample(integerDelay);
 			const Sample t2 = t * t;
 			const Sample t3 = t2 * t;
-			const Sample p0 = ReadTap(integerDelay - 1);
 			const Sample p1 = ReadTap(integerDelay);
 			const Sample p2 = ReadTap(integerDelay + 1);
 			const Sample p3 = ReadTap(integerDelay + 2);
+			// Extrapolate the unavailable future tap for delays in [0, 1).
+			const Sample p0 = integerDelay > 0 ? ReadTap(integerDelay - 1) : Sample(2) * p1 - p2;
 			const Sample m1 = Sample(0.5) * (p2 - p0);
 			const Sample m2 = Sample(0.5) * (p3 - p1);
-			const Sample y = (Sample(2) * t3 - Sample(3) * t2 + Sample(1)) * p1 + (t3 - Sample(2) * t2 + t) * m1 + (-Sample(2) * t3 + Sample(3) * t2) * p2 + (t3 - t2) * m2;
+			const Sample y = (Sample(2) * t3 - Sample(3) * t2 + Sample(1)) * p1
+				+ (t3 - Sample(2) * t2 + t) * m1
+				+ (-Sample(2) * t3 + Sample(3) * t2) * p2 + (t3 - t2) * m2;
 			if (++writePos == Capacity) writePos = 0;
 			return y;
 		}
@@ -811,67 +816,54 @@ namespace PianoDWG
 			return x;
 		}
 	};
+
+
 	template <typename Sample>
 	class PianoWaveguide2
 	{
 	public:
 		using Hammer = HammerModelDWG2<Sample, 2048>;
-		using Delay = DelayLineDWG2<Sample, 4096>;
+		using Delay = DelayLine2<Sample, 4096>;
 		using StringIIR = LatticeIIR<Sample, 8>;
-		using MatrixIIR = LatticeIIR<Sample, 2>;
-		using OutputNL = NLCells2<Sample>;
+		using MatrixIIR = LatticeIIR<Sample, 4>;
+		//using OutputProc = NLCells2<Sample>;
+		using OutputProc = LatticeIIR<Sample, 4>;
 
-		constexpr static int NumStrings = 2;
+		constexpr static int NumStrings = 3;
 		Hammer hammer[NumStrings];
 		Delay delay[NumStrings];
 		StringIIR striir[NumStrings];
 		MatrixIIR matiir[NumStrings][NumStrings];
 		Sample gOutL[NumStrings];
 		Sample gOutR[NumStrings];
-		OutputNL nll, nlr;
+		OutputProc nll, nlr;
 
 		Sample pass[NumStrings];
 		Sample dampV = 1.0, releaseDampV = 0.985;
 	public:
 		static constexpr int NumParams = NumStrings * (Hammer::NumParams + Delay::NumParams +
-			StringIIR::NumParams + NumStrings * MatrixIIR::NumParams + 2) + 2 * OutputNL::NumParams;
+			StringIIR::NumParams + NumStrings * MatrixIIR::NumParams + 2) + 2 * OutputProc::NumParams;
 
 		void InitParams(Sample* out, const Sample* targetL, const Sample* targetR, int numSamples,
-			float* frequencies, int& numFrequencies)
+			float* frequencies, int& numFrequencies1)
 		{
-			const int capacity = numFrequencies;
-			const auto estimate = [&](const Sample* target)
-			{
-				numFrequencies = capacity;
-				if constexpr (std::is_same_v<Sample, float>)
-				{
-					EstimationDelayK(target, numSamples, frequencies, numFrequencies);
-				}
-				else if (target && numSamples > 0)
-				{
-					const std::vector<float> reference(target, target + numSamples);
-					EstimationDelayK(reference.data(), numSamples, frequencies, numFrequencies);
-				}
-				else
-				{
-					numFrequencies = 0;
-				}
-			};
-
-			estimate(targetL);
-			if (numFrequencies == 0)
-				estimate(targetR);
-			if (numFrequencies == 0)
-				throw std::runtime_error("PianoWaveguide2: could not estimate the fundamental");
-
+			int numFrequencies = std::max(numFrequencies, 20);
 			const auto fit = mkEstim(frequencies, numFrequencies, 4095);
-			std::printf("PianoWaveguide2 f0=%.6f Hz m=%d k={", frequencies[0], fit.delay);
+			std::printf("PianoWaveguide2 f0=%.6f Hz m=%.6f k={", frequencies[0], fit.delay);
 			for (std::size_t i = 0; i < fit.k.size(); ++i)
 				std::printf("%s%.8f", i == 0 ? "" : ", ", fit.k[i]);
 			std::printf("} fit_loss=%.8g\n", fit.loss);
-			constexpr Sample self = Sample(0.99);
-			constexpr Sample cross = Sample(-0.006);
+			// Bound the faster-decaying and slower-decaying modes together.
+			// For negative cross coupling the larger gain is self - cross.
+			constexpr Sample maxLoopGain = Sample(0.999);
+			constexpr Sample cross = Sample(-0.05);
+			constexpr Sample self = maxLoopGain + cross;
 			constexpr Sample determinant = self * self - cross * cross;
+			const int roundTrip = (std::max)(1, static_cast<int>(SampleRate / frequencies[0]));
+			const auto targetSample = [numSamples](const Sample* target, int n)
+				{
+					return target && n >= 0 && n < numSamples ? target[n] : Sample(0);
+				};
 			std::array<Sample, StringIIR::NumParams> stringParams{};
 			for (int i = 0; i < OptimizeMK::StringOrder; ++i)
 				stringParams[i] = Sample(std::atanh(fit.k[i]));
@@ -881,12 +873,16 @@ namespace PianoDWG
 			{
 				for (int n = 0; n < Hammer::NumParams; ++n)
 				{
-					const Sample l = targetL && n < numSamples ? targetL[n] : Sample(0);
-					const Sample r = targetR && n < numSamples ? targetR[n] : Sample(0);
-					hammer[i].hammer[n] = i == 0 ? (self * l - cross * r) / determinant
+					const Sample l = targetSample(targetL, n);
+					const Sample r = targetSample(targetR, n);
+					const Sample input = i == 0 ? (self * l - cross * r) / determinant
 						: (self * r - cross * l) / determinant;
+					// Approximate the dispersion path by one fundamental period.
+					// The prior output is already present at the hammer summing node.
+					const Sample returning = targetSample(i == 0 ? targetL : targetR, n - roundTrip);
+					hammer[i].hammer[n] = input - returning;
 				}
-				delay[i].InitParams(nullptr, fit.delay);
+				delay[i].SetDelayTime(Sample(fit.delay) + (float)(i - NumStrings / 2) * 0.045);
 				striir[i].VecToParams(stringParams.data());
 				for (int j = 0; j < NumStrings; ++j)
 				{
@@ -920,7 +916,7 @@ namespace PianoDWG
 				gOutR[i] = *in++;
 			}
 			nll.VecToParams(in);
-			nlr.VecToParams(in + OutputNL::NumParams);
+			nlr.VecToParams(in + OutputProc::NumParams);
 		}
 
 		void ParamsToVec(Sample* out)
@@ -939,7 +935,7 @@ namespace PianoDWG
 				*out++ = gOutR[i];
 			}
 			nll.ParamsToVec(out);
-			nlr.ParamsToVec(out + OutputNL::NumParams);
+			nlr.ParamsToVec(out + OutputProc::NumParams);
 		}
 
 		void Reset()
