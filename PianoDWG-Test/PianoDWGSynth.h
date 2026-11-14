@@ -3,18 +3,18 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include "PianoDWG2.h"
+#include "PianoDWG.h"
 #include "PianoDWGParams.h"
 
 namespace PianoDWGParams = PianoDWGParams_Piano1;
 
 class PianoDWGSynth {
 public:
-    static constexpr float DwgSampleRate = PianoDWG2::SampleRate;
+    static constexpr float DwgSampleRate = PianoDWG::SampleRate;
     static constexpr int NumPolys = 16;
     float hostSampleRate = 48000.f;
 private:
-    using Model = PianoDWG2::PianoDWG2Voice<float>;
+    using Model = PianoDWG::PianoWaveguide2<float>;
     static_assert(Model::NumParams == PianoDWGParams::NumParams, "Checkpoint layout mismatch");
     struct Stereo {
         float left = 0, right = 0;

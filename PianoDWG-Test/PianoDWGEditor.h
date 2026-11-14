@@ -77,7 +77,7 @@ protected:
         t.Clear(D2D1::ColorF(0x171c26));
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
         if (FAILED(t.CreateSolidColorBrush(D2D1::ColorF(0xe8edf5), brush.GetAddressOf()))) return;
-        Text(t, brush.Get(), L"PianoDWG2", titleFont.Get(), D2D1::RectF(24, 24, size.width - 24, 70));
+        Text(t, brush.Get(), L"PianoWaveguide2", titleFont.Get(), D2D1::RectF(24, 24, size.width - 24, 70));
         brush->SetColor(D2D1::ColorF(0x9daec4));
         wchar_t modelInfo[96]{};
         swprintf_s(modelInfo, L"%d trained keys  |  %d voices  |  Model: %.0f Hz",

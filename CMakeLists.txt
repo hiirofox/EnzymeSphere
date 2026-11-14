@@ -24,7 +24,7 @@ set_target_properties(OpenBLAS::OpenBLAS PROPERTIES
 )
 # 统一管理三个库的使用要求。
 add_library(project_external INTERFACE)
-target_include_directories(project_external SYSTEM INTERFACE
+target_include_directories(project_external INTERFACE
     ${EXTERNAL_INCLUDE_DIRS}
 )
 target_compile_features(project_external INTERFACE cxx_std_17)
@@ -60,7 +60,7 @@ set(ENZYME_APP_COMPILE_OPTIONS
 add_enzyme_object(loss_gradient
     "${ProjectPath}/loss.cpp"
     DEPENDS "${ProjectPath}/loss.h"
-    INCLUDE_DIRECTORIES "${ProjectPath}"
+    INCLUDE_DIRECTORIES "${ProjectPath}" ${EXTERNAL_INCLUDE_DIRS}
     COMPILE_OPTIONS ${ENZYME_APP_COMPILE_OPTIONS}
 )
 

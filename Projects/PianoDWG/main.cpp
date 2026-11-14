@@ -12,12 +12,11 @@
 #include "estimationDelayK.h"
 
 std::string root = "D:/Projects/c++/EnzymeSphere/test/tasks/";
-std::string targetfile = "048C";//.wav
-bool trainMode = false;
+std::string targetfile = "021A";//.wav
+bool trainMode = true;
 
 
-Adam<float> optV2(.0001);
-//LBFGS<float> optV2(.0001);
+Adam<float> optV2(.000005);
 WavReader wr;
 WavWriter ww;
 
@@ -139,6 +138,7 @@ int main(int argc, char* argv[])
 		{
 			if (!trainMode)tui.UpdateAndRepaint(params, NumParams);
 		}
+
 		optV2.Update(params, grads, NumParams, loss);
 		float losg = 0.;
 		for (int i = 0; i < NumParams; ++i)losg += grads[i] * grads[i];

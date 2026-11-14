@@ -844,7 +844,7 @@ namespace PianoDWG
 		static constexpr int NumParams = NumStrings * (Hammer::NumParams + Delay::NumParams +
 			StringIIR::NumParams + NumStrings * MatrixIIR::NumParams + 2) + 2 * OutputProc::NumParams;
 
-		void InitParams(Sample* out, const Sample* targetL, const Sample* targetR, int numSamples,
+		void InitParams1(Sample* out, const Sample* targetL, const Sample* targetR, int numSamples,
 			float* frequencies, int& numFrequencies1)
 		{
 			int numFrequencies = std::max(numFrequencies, 20);
@@ -899,6 +899,199 @@ namespace PianoDWG
 			if (out)
 				ParamsToVec(out);
 		}
+
+
+		void InitParams(Sample* out, const Sample* targetL, const Sample* targetR,
+			int numSamples, float* frequencies, int& numFrequencies1)
+		{
+			const int numFrequencies = std::max(numFrequencies1, 30);
+			const auto fit = mkEstim(frequencies, numFrequencies, 4095);
+
+			// 与 PianoWaveguide1 一致：补偿一个采样的隐含延迟
+			Sample m = Sample(fit.delay) - Sample(1);
+			if (m < Sample(1))
+				m = Sample(1);
+
+			std::printf("PianoWaveguide2 f0=%.6f Hz m=%.6f k={",
+				frequencies[0], (double)m);
+
+			for (std::size_t i = 0; i < fit.k.size(); ++i)
+				std::printf("%s%.8f", i == 0 ? "" : ", ", fit.k[i]);
+
+			std::printf("} fit_loss=%.8g\n", fit.loss);
+
+			// ------------------------------------------------
+			// 1. Bridge 矩阵增益：与 PianoWaveguide1 一致
+			// ------------------------------------------------
+
+			Sample matrixSelf = Sample(2.99);
+			Sample matrixCross = Sample(-0.006);
+
+			if (m < Sample(40))
+			{
+				matrixSelf *= Sample(0.995);
+				matrixCross *= Sample(0.995);
+			}
+
+			// 三弦对称矩阵：
+			//
+			// [ self  cross cross ]
+			// [ cross self  cross ]
+			// [ cross cross self  ]
+			//
+			// 后面用于 Hammer 的三弦矩阵逆变换。
+
+			const Sample diff = matrixSelf - matrixCross;
+			const Sample sumGain = matrixSelf + Sample(2) * matrixCross;
+
+			const Sample invDiff = Sample(1) / diff;
+			const Sample invCommon =
+				matrixCross / (diff * sumGain);
+
+			// Hammer 初始化与原始矩阵保持一致。
+			// MatrixIIR 中的反馈增益缩放不参与这个逆变换。
+			const Sample hammerScale = sumGain / Sample(2.96);
+
+			// ------------------------------------------------
+			// 2. StringIIR：纯全通
+			// ------------------------------------------------
+
+			constexpr int StringOrder = (StringIIR::NumParams - 1) / 2;
+
+			std::array<Sample, StringIIR::NumParams> stringParams{};
+
+			const Sample kLimit = Sample(1) -
+				Sample(8) * std::numeric_limits<Sample>::epsilon();
+
+			for (int i = 0;
+				i < std::min(OptimizeMK::StringOrder, StringOrder);
+				++i)
+			{
+				Sample k = Sample(fit.k[i]);
+
+				k = std::max(-kLimit, std::min(k, kLimit));
+
+				// VecToParams 内部执行 tanh，因此需要 atanh 还原。
+				stringParams[i] = std::atanh(k);
+			}
+
+			// g[0]=1，其余 g=0：完整格型全通输出
+			stringParams[StringOrder] = Sample(1);
+
+			// ------------------------------------------------
+			// 3. MatrixIIR：带增益直通
+			// ------------------------------------------------
+
+			std::array<Sample, MatrixIIR::NumParams> matrixParams{};
+
+			// PianoWaveguide1 的反馈路径：
+			// pass = tmp / NumStrings
+			//
+			// PianoWaveguide2 将这个缩放折入 MatrixIIR，
+			// 使其反馈路径等效。
+			const Sample feedbackSelf = matrixSelf / Sample(NumStrings);
+			const Sample feedbackCross = matrixCross / Sample(NumStrings);
+
+			// ------------------------------------------------
+			// 4. Hammer 初始化
+			// ------------------------------------------------
+
+			const auto targetSample = [numSamples](const Sample* target, int n)
+				{
+					return target && n >= 0 && n < numSamples
+						? target[n] : Sample(0);
+				};
+
+			constexpr int ReferenceHammerSize = 1024;
+
+			for (int n = 0; n < Hammer::NumParams; ++n)
+			{
+				if (n >= ReferenceHammerSize)
+				{
+					for (int i = 0; i < NumStrings; ++i)
+						hammer[i].hammer[n] = Sample(0);
+
+					continue;
+				}
+
+				// 与 PianoWaveguide1 的 ReturnSamples=0 一致
+				const Sample residualL =
+					targetSample(targetL, n) -
+					Sample(0.985) * targetSample(targetL, n);
+
+				const Sample residualR =
+					targetSample(targetR, n) -
+					Sample(0.985) * targetSample(targetR, n);
+
+				// 保留原模型的双声道映射：
+				// 三弦目标为 [L, R, R]
+				const Sample residualSum =
+					residualL + Sample(2) * residualR;
+
+				// 对完整3x3对称矩阵求逆：
+				//
+				// M^-1 = 1/(self-cross) * I
+				//        - cross/((self-cross)*(self+2*cross)) * J
+				//
+				// 再按 PianoWaveguide1 的 2.96 分母修正激励幅度。
+
+				hammer[0].hammer[n] =
+					(residualL * invDiff -
+						residualSum * invCommon) * hammerScale;
+
+				hammer[1].hammer[n] =
+					(residualR * invDiff -
+						residualSum * invCommon) * hammerScale;
+
+				hammer[2].hammer[n] =
+					(residualR * invDiff -
+						residualSum * invCommon) * hammerScale;
+			}
+
+			// ------------------------------------------------
+			// 5. 三弦模型初始化
+			// ------------------------------------------------
+
+			for (int i = 0; i < NumStrings; ++i)
+			{
+				// Delay：与 PianoWaveguide1 一致
+				delay[i].SetDelayTime(
+					m + Sample(i - 1) * Sample(0.045));
+
+				// StringIIR：优化后的纯全通
+				striir[i].VecToParams(stringParams.data());
+
+				// MatrixIIR：k=0，只有最后一个 g 非零
+				for (int j = 0; j < NumStrings; ++j)
+				{
+					matrixParams.back() =
+						(i == j) ? feedbackSelf : feedbackCross;
+
+					matiir[i][j].VecToParams(matrixParams.data());
+				}
+
+				// 输出增益补偿：
+				// 抵消 MatrixIIR 中折入的 1/3。
+				//
+				// 保留原来的左右声道选弦方式。
+				gOutL[i] = (i == 0) ? Sample(NumStrings) * 4. : Sample(0);
+				gOutR[i] = (i == 1) ? Sample(NumStrings) * 4. : Sample(0);
+			}
+
+			// PianoWaveguide1 的释放阻尼为 0.999
+			releaseDampV = Sample(0.999);
+
+			// 输出处理器初始化为直通
+			nll.InitParams(nullptr);
+			nlr.InitParams(nullptr);
+
+			Reset();
+
+			if (out)
+				ParamsToVec(out);
+		}
+
+
 
 		void VecToParams(Sample* in)
 		{
